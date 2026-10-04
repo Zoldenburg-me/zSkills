@@ -21,6 +21,7 @@ cp -r zSkills/repo-leak-scan ~/.claude/skills/
 | [repo-leak-scan](repo-leak-scan/SKILL.md) | Scans every commit, branch, PR head and PR/issue text for leaked secrets (and checks with the provider whether they still work), private data (IBANs, emails, phone numbers, home paths, wallet keys, commit identities) and vulnerability disclosures. Compares the repo's own `.env` values against history. Scores each candidate with TypeSafe, confirms those above a cutoff, and leaves the uncertain band to the agent. Labels each finding by exposure: public branch, PR refs only, or local only. |
 | [onchain-review](onchain-review/SKILL.md) | Reviews wallets, contracts, transactions and Safe multisigs on any EVM chain through the Blockscout MCP server, the Blockscout PRO API, Etherscan V2 and the Safe Transaction Service: balances and activity, DAO delegation and votes, verified source and state at a past block, transaction traces, Safe owners, threshold and pending proposals with who has signed. Read-only; every number comes from a fetched response. |
 | [skill-router](skill-router/SKILL.md) | Picks the skills that fit the current task and runs them. Catalogs every reachable skill (loaded listing, `~/.claude/skills`, commands, plugins, the uninstalled ECC library), shortlists with BM25, then scores each shortlisted skill with two TypeSafe Jev Nouls: does it serve the task, and does the repo have what it works on. Runs the top picks, hands the uncertain band to the agent, and shows the plan before running anything. |
+| [gdpr-compliance](gdpr-compliance/SKILL.md) | Audits a codebase for GDPR / DSGVO and produces an Art. 30 data map: every place the app collects, stores, logs or sends personal data, the recipients, controller vs processor role, proposed legal basis and retention, data-subject-rights coverage, and a ranked gap list (Blocker / Fix / Tidy) with fixes and questions for counsel. Also reviews a diff for new personal-data exposure and drafts an Art. 13 notice. German specifics included (DDG Impressum, TDDDG, BDSG DPO, §147 AO retention). Engineering inventory, not legal advice. |
 
 ### repo-leak-scan requirements
 
@@ -52,3 +53,10 @@ cp -r zSkills/repo-leak-scan ~/.claude/skills/
   `SKILL_ROUTER_LIBRARY` to its `skills/` folder
 - Sends the task text, file-type counts, dependency names, changed file paths
   and recent commit subjects to TypeSafe; no file contents or diffs
+
+### gdpr-compliance requirements
+
+- bash and grep for `scripts/pii_scan.sh` (no other dependencies)
+- An agent that can run parallel read-only sub-agents for the four sweeps;
+  without it, run the sweeps one after another
+- Sends nothing anywhere: the scan and sweeps read the local repo only
