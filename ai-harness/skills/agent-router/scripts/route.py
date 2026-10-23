@@ -68,6 +68,16 @@ def agent_files(root):
     return [os.path.join(root, f) for f in sorted(os.listdir(root)) if f.endswith(".md")]
 
 
+def resolve_always(cat, name):
+    """A registered agent beats a library file; plugin agents are listed as "<plugin>:<name>"."""
+    if name in cat and cat[name]["source"] != "library":
+        return name
+    # exact name after the colon; the ai-harness copy first, then alphabetical, so every run picks the same one
+    prefixed = sorted((k for k in cat if k.split(":", 1)[-1] == name and ":" in k),
+                      key=lambda k: (not k.startswith("ai-harness:"), k))
+    return prefixed[0] if prefixed else (name if name in cat else None)
+
+
 def build_catalog(listing_path):
     cat = {}
     # 1. The session's own agent listing: authoritative for what Agent(subagent_type=...) accepts now.
@@ -89,8 +99,11 @@ def build_catalog(listing_path):
         for f in files:
             if f.endswith(".md"):
                 fm = sr.frontmatter(os.path.join(root, f))
-                if fm.get("name"):
-                    add(cat, fm["name"], fm.get("description", ""), "plugin", f"Agent({fm['name']})")
+                if fm.get("name") and fm["name"] not in NEVER:
+                    # cache/<marketplace>/<plugin>/<version>/agents: the session lists it as "<plugin>:<name>"
+                    parts = os.path.relpath(root, PLUGIN_CACHE).split(os.sep)
+                    n = f"{parts[1]}:{fm['name']}" if len(parts) > 2 else fm["name"]
+                    add(cat, n, fm.get("description", ""), "plugin", f"Agent({n})")
     # 3. Library agents: not registered, launched as general-purpose with the file as the brief.
     for p in agent_files(LIBRARY_DIR):
         fm = sr.frontmatter(p)
@@ -251,7 +264,8 @@ def main():
         sys.exit("empty catalog: pass --listing or install agents in ~/.claude/agents")
     ctx = sr.repo_context(task)
     change = a.change if a.change is not None else bool(sr.CHANGE_RE.search(task))
-    baseline = [n for n in sr.resolve(ALWAYS_ON_CHANGE, cat) if n in cat] if change else []
+    resolved = [resolve_always(cat, n) for n in ALWAYS_ON_CHANGE]
+    baseline = [n for n in resolved if n] if change else []
     short = sr.shortlist(cat, ctx, a.shortlist, baseline)
     for name, obj in (("context", ctx), ("catalog", cat), ("shortlist", short), ("baseline", baseline)):
         json.dump(obj, open(os.path.join(a.workdir, f"{name}.json"), "w"), indent=1)

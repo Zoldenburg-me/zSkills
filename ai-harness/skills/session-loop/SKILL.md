@@ -1,6 +1,6 @@
 ---
 name: session-loop
-description: How the lead session and its worker sessions run board tasks end to end. Lead picks tasks from the agent-tracker board by priority, starts one worker session per task and keeps the board current; the worker fixes, tests, runs /skill-router and /agent-router, opens the PR (and the docs PR), waits for Devin on the final head SHA, merges and reports in one message. Use when the user says "you are the lead", "work the board", "spin up sessions", "/session-loop lead", or when a brief says "/session-loop worker".
+description: Lead dispatches agent-tracker board tasks to worker sessions; a worker owns its task to the merge. Use for "you are the lead", "work the board", "/session-loop lead", or a brief saying "/session-loop worker".
 ---
 
 # Session loop
@@ -55,22 +55,18 @@ You own the task from code to merge. The lead only reads your final report.
    commit. Fix every Critical, High and Medium finding; answer the rest in the
    PR body. No change is too small to skip this, and a self-run
    `/ponytail-review` does not replace them.
-6. **Commit, push, PR.** Conventional message, no Co-Authored-By or
-   "Generated with" lines. No `gh` CLI: use the GitHub API with the PAT read
-   inline (for example `security find-generic-password -s <your-pat-item> -w`), never
-   printed. PR body: what changed, the tests, what you did not check.
+6. **Commit, push, PR.** Conventional message; open the PR with `gh`. PR body: what changed, the tests, what you did not check.
    **Run `/git-workflow` once**, after the PR is open and before the merge,
    and fix what it flags (branch name, message format, history, base).
 7. **Docs.** A user-visible change gets a PR on the docs repo in the same task
    (`<owner>/<docs-repo>`; its AGENTS.md sets the voice). Check that checkout's branch first or use a worktree.
 8. **Always wait for Devin. Merge gate, all must hold on the FINAL head SHA:**
-   - `GET /repos/<owner>/<repo>/commits/<sha>/statuses`: the "Devin Review"
+   - `gh api repos/<owner>/<repo>/commits/<sha>/statuses`: the "Devin Review"
      status is `success`, i.e. Devin has FINISHED reviewing that SHA. Pending
      or not started is not passing.
    - Every Devin review comment is addressed: fixed (routers, commit, push)
      or answered on its thread.
    - Any other CI on that SHA is green.
-   - `/git-workflow` has run (once, step 6).
    Every push restarts the wait for Devin. If Devin has not reviewed after a
    long wait, tell the lead; never merge without it.
 9. **Merge**, then prove it: the PR head equals your last push, `git fetch`
