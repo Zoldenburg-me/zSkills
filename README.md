@@ -117,3 +117,9 @@ claude plugin install ai-harness@ai-harness
   for Context7
 - The per-skill requirements above apply to the copies inside it. The
   copies inside `ai-harness` can be newer than the standalone folders
+
+## License
+
+MIT, see [LICENSE](LICENSE); `ai-harness/` carries its own copy. Third-party
+material keeps its own licence, listed in `ai-harness/NOTICE.md`,
+`ai-harness/web3/NOTICE.md` and `onchain-review/references/upstream/`.
