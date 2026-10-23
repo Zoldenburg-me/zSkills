@@ -1,0 +1,4 @@
+ai-harness/evals/vibecode-auditor/fixtures/seeded/.env.production:jwt:2
+ai-harness/evals/vibecode-auditor/fixtures/seeded/.env.production:generic-api-key:3
+ai-harness/web3/skills/web3-dev/references/pro-api.json:generic-api-key:16080
+ai-harness/web3/skills/onchain-review/references/pro-api.json:generic-api-key:16080

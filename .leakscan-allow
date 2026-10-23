@@ -1,0 +1,6 @@
+# Example values in the leak scanner's own docs and patterns
+old@gmail\.com
+# Deliberately seeded fake keys: the vibecode-auditor eval must find them
+path:^ai-harness/evals/vibecode-auditor/fixtures/seeded/\.env\.production$
+# Example page_token in the Blockscout PRO API spec
+path:^(ai-harness/web3/skills/)?(web3-dev|onchain-review)/references/pro-api\.json$

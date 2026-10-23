@@ -1,0 +1,9 @@
+{
+  "name": "ai-harness",
+  "version": "0.2.0",
+  "description": "Harness for building AI apps with Claude Code: evals first, smallest change, reviewed and verified before merge. Curated from ECC and Ponytail.",
+  "author": {
+    "name": "Tony Thomas"
+  },
+  "license": "MIT"
+}

@@ -3,6 +3,8 @@
 Agent skills from Zoldenburg, for Claude Code and any agent that reads the
 `SKILL.md` format: a folder with a `SKILL.md` (name, description, instructions)
 plus the scripts and references it uses.
+Also one subagent (`vibecode-auditor`) and one Claude Code plugin
+(`ai-harness`) that bundles skills, agents and commands.
 
 ## Install
 
@@ -14,6 +16,19 @@ git clone git@github.com:Zoldenburg-me/zSkills.git
 cp -r zSkills/repo-leak-scan ~/.claude/skills/
 ```
 
+An agent file goes into `~/.claude/agents/`:
+
+```bash
+cp zSkills/vibecode-auditor/vibecode-auditor.md ~/.claude/agents/
+```
+
+`ai-harness` installs as a plugin:
+
+```bash
+claude plugin marketplace add ./zSkills/ai-harness
+claude plugin install ai-harness@ai-harness
+```
+
 ## Skills
 
 | Skill | What it does |
@@ -23,6 +38,19 @@ cp -r zSkills/repo-leak-scan ~/.claude/skills/
 | [skill-router](skill-router/SKILL.md) | Picks the skills that fit the current task and runs them. Catalogs every reachable skill (loaded listing, `~/.claude/skills`, commands, plugins, the uninstalled ECC library), shortlists with BM25, then scores each shortlisted skill with two TypeSafe Jev Nouls: does it serve the task, and does the repo have what it works on. Runs the top picks, hands the uncertain band to the agent, and shows the plan before running anything. |
 | [gdpr-compliance](gdpr-compliance/SKILL.md) | Audits a codebase for GDPR / DSGVO and produces an Art. 30 data map: every place the app collects, stores, logs or sends personal data, the recipients, controller vs processor role, proposed legal basis and retention, data-subject-rights coverage, and a ranked gap list (Blocker / Fix / Tidy) with fixes and questions for counsel. Also reviews a diff for new personal-data exposure and drafts an Art. 13 notice. German specifics included (DDG Impressum, TDDDG, BDSG DPO, §147 AO retention). Engineering inventory, not legal advice. |
 | [security-fix](security-fix/SKILL.md) | Works the findings of a finished security-audit run one per session. `queue` turns `findings.json` into a fix queue (`FIX-PROGRESS.md`) and marks findings that need a product decision; `next` claims one row, writes the reproduction test, makes the smallest fix at the last trusted decision point, and opens a PR. A deterministic judge (test red on the merge base, green on the fix, no deleted or weakened tests) and an independent checker subagent with a mutation check decide whether the fix stands. The fixer never grades itself and never merges; the owner's merge marks the row fixed. Each session offers a one-click chip for the next finding. |
+| [session-loop](session-loop/SKILL.md) | Runs board tasks across Claude Code sessions. The lead reads the agent-tracker board by priority, starts one worker session per task and keeps the board current; it never codes. Each worker fixes and tests, runs `/skill-router` and `/agent-router` before every commit, opens the PR (and a docs PR for user-visible changes), runs `/git-workflow` once, waits for Devin to pass on the final head SHA, merges, proves the merge on `origin/main` and reports in one message. Hard limits in `sessions-rules.md`. |
+
+## Agents
+
+| Agent | What it does |
+|---|---|
+| [vibecode-auditor](vibecode-auditor/vibecode-auditor.md) | Read-only audit of apps built with Lovable, Bolt, v0, Replit, Cursor and similar. Looks for what these builds ship with: keys in the client, missing server-side checks, open database policies, unbounded AI spend, placeholder data, generic UI. Returns a ranked report and a launch verdict. Its eval (seeded and clean fixture apps, answer key, grader) is in `ai-harness/evals/vibecode-auditor/`. |
+
+## Plugins
+
+| Plugin | What it does |
+|---|---|
+| [ai-harness](ai-harness/README.md) | Claude Code plugin for building AI apps: evals first, smallest complete change, reviewed and verified before merge. Bundles about 30 skills (from ECC, Ponytail, andrej-karpathy-skills and this repo), 15 agents, 4 commands, an `AGENTS.md` template with `/ai-harness:harness-init`, and a separate `ai-harness-web3` add-on. Third-party licences in `NOTICE.md`. |
 
 ### repo-leak-scan requirements
 
@@ -74,3 +102,17 @@ cp -r zSkills/repo-leak-scan ~/.claude/skills/
   session; without them the skill prints the prompt to paste
 - Optional: `agent-router` and `skill-router` for the review pass
 - Runs the repo's tests locally only; sends nothing anywhere except the PR
+
+### session-loop requirements
+
+- The `agent-tracker` MCP (the board), the Claude desktop app's session tools
+  (`start_session`, `SendMessage`), a GitHub repo with Devin review
+- `skill-router`, `agent-router` and `git-workflow` for the worker loop;
+  `agent-router` and `git-workflow` ship inside `ai-harness`
+
+### ai-harness requirements
+
+- Claude Code with plugin support; `uv` for the bundled system1 MCP, `npx`
+  for Context7
+- The per-skill requirements above apply to the copies inside it. The
+  copies inside `ai-harness` can be newer than the standalone folders

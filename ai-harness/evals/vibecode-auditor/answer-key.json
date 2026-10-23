@@ -1,0 +1,366 @@
+{
+  "fixture": "fixtures/seeded",
+  "note": "A flaw counts as found when one findings-table row matches every group in `match` (each group: any one term, case-insensitive). `severity` is the expected level; within one level counts as agreeing.",
+  "flaws": [
+    {
+      "id": "F01",
+      "severity": "Critical",
+      "title": "Supabase service_role key used in the browser client",
+      "match": [
+        [
+          "supabaseclient",
+          ".env.production",
+          "next_public_supabase_service"
+        ],
+        [
+          "service_role",
+          "service role",
+          "service-role"
+        ]
+      ]
+    },
+    {
+      "id": "F02",
+      "severity": "Critical",
+      "title": "OpenAI key exposed to the browser and called from client code",
+      "match": [
+        [
+          "editor.tsx",
+          "next_public_openai",
+          ".env.production"
+        ],
+        [
+          "openai"
+        ]
+      ]
+    },
+    {
+      "id": "F03",
+      "severity": "Critical",
+      "title": "RLS not enabled on documents",
+      "match": [
+        [
+          "001_init",
+          "migration"
+        ],
+        [
+          "documents"
+        ],
+        [
+          "rls",
+          "row level",
+          "row-level"
+        ]
+      ]
+    },
+    {
+      "id": "F04",
+      "severity": "Critical",
+      "title": "profiles policies use (true): anyone reads all and can set role/plan",
+      "match": [
+        [
+          "001_init",
+          "migration"
+        ],
+        [
+          "profiles"
+        ],
+        [
+          "using (true)",
+          "using(true)",
+          "`true`",
+          "(true)",
+          "escalat",
+          "role"
+        ]
+      ]
+    },
+    {
+      "id": "F05",
+      "severity": "Critical",
+      "title": "No owner check on GET /api/documents/[id] (IDOR)",
+      "match": [
+        [
+          "documents/[id]",
+          "documents/\\[id\\]",
+          "api/documents"
+        ],
+        [
+          "owner",
+          "idor",
+          "any document",
+          "another user",
+          "any user",
+          "ownership"
+        ]
+      ]
+    },
+    {
+      "id": "F06",
+      "severity": "High",
+      "title": "Admin delete-user API has no server-side auth; admin check only in UI",
+      "match": [
+        [
+          "admin/users",
+          "api/admin",
+          "deleteuser"
+        ],
+        [
+          "auth",
+          "server",
+          "ui",
+          "client",
+          "anyone",
+          "unauthenticated"
+        ]
+      ]
+    },
+    {
+      "id": "F07",
+      "severity": "High",
+      "title": "Stripe webhook without signature verification",
+      "match": [
+        [
+          "webhook"
+        ],
+        [
+          "signature",
+          "constructevent",
+          "verif",
+          "forge",
+          "forged"
+        ]
+      ]
+    },
+    {
+      "id": "F08",
+      "severity": "High",
+      "title": "Checkout price taken from the client",
+      "match": [
+        [
+          "checkout"
+        ],
+        [
+          "amount",
+          "price",
+          "unit_amount"
+        ]
+      ]
+    },
+    {
+      "id": "F09",
+      "severity": "Critical",
+      "title": "AI endpoint with no auth, rate limit or max_tokens",
+      "match": [
+        [
+          "api/generate",
+          "generate/route"
+        ],
+        [
+          "rate",
+          "max_tokens",
+          "auth",
+          "quota",
+          "cost",
+          "bill",
+          "abuse"
+        ]
+      ]
+    },
+    {
+      "id": "F10",
+      "severity": "High",
+      "title": "Stored XSS via dangerouslySetInnerHTML on user content",
+      "match": [
+        [
+          "documentview",
+          "dangerouslysetinnerhtml"
+        ],
+        [
+          "xss",
+          "dangerouslysetinnerhtml",
+          "html",
+          "script"
+        ]
+      ]
+    },
+    {
+      "id": "F11",
+      "severity": "High",
+      "title": "SQL injection in search (string concatenation)",
+      "match": [
+        [
+          "search"
+        ],
+        [
+          "sql",
+          "inject",
+          "concaten",
+          "parameter"
+        ]
+      ]
+    },
+    {
+      "id": "F12",
+      "severity": "High",
+      "title": "SSRF: export posts to any user-supplied URL",
+      "match": [
+        [
+          "export"
+        ],
+        [
+          "ssrf",
+          "webhookurl",
+          "arbitrary url",
+          "any url",
+          "internal",
+          "server-side request"
+        ]
+      ]
+    },
+    {
+      "id": "F13",
+      "severity": "Medium",
+      "title": "Stack trace returned in export error response",
+      "match": [
+        [
+          "export",
+          "stack"
+        ],
+        [
+          "stack"
+        ]
+      ]
+    },
+    {
+      "id": "F14",
+      "severity": "High",
+      "title": "Typo-squatted package axois",
+      "match": [
+        [
+          "axois"
+        ]
+      ]
+    },
+    {
+      "id": "F15",
+      "severity": "High",
+      "title": ".env.production with live secrets in the repo, not gitignored",
+      "match": [
+        [
+          ".env.production"
+        ],
+        [
+          "commit",
+          "gitignore",
+          "repo",
+          "tracked",
+          "checked in",
+          "version control",
+          "in the source"
+        ]
+      ]
+    },
+    {
+      "id": "F16",
+      "severity": "High",
+      "title": "Password reset: no rate limit and reveals whether an account exists",
+      "match": [
+        [
+          "auth/reset",
+          "reset"
+        ],
+        [
+          "rate",
+          "enumerat",
+          "exists",
+          "brute",
+          "spam",
+          "no account"
+        ]
+      ]
+    },
+    {
+      "id": "F17",
+      "severity": "Medium",
+      "title": "N+1 query on dashboard",
+      "match": [
+        [
+          "dashboard"
+        ],
+        [
+          "n+1",
+          "loop",
+          "per document",
+          "each document",
+          "query per",
+          "one query"
+        ]
+      ]
+    },
+    {
+      "id": "F18",
+      "severity": "Medium",
+      "title": "CORS * with credentials on all API routes",
+      "match": [
+        [
+          "cors",
+          "access-control-allow-origin",
+          "next.config"
+        ],
+        [
+          "*",
+          "wildcard",
+          "credential",
+          "any origin"
+        ]
+      ]
+    },
+    {
+      "id": "F19",
+      "severity": "Low",
+      "title": "Placeholder copy and fake testimonials on the landing page",
+      "match": [
+        [
+          "page.tsx",
+          "landing",
+          "home"
+        ],
+        [
+          "lorem",
+          "testimonial",
+          "placeholder",
+          "jane doe",
+          "fake"
+        ]
+      ]
+    },
+    {
+      "id": "F20",
+      "severity": "Low",
+      "title": "Builder leftover lovable-tagger",
+      "match": [
+        [
+          "lovable"
+        ]
+      ]
+    },
+    {
+      "id": "F21",
+      "severity": "High",
+      "title": "Dashboard has no session check and lists every user's documents with owner emails (found by the auditor, not planted)",
+      "match": [
+        [
+          "dashboard"
+        ],
+        [
+          "public",
+          "session",
+          "every document",
+          "all documents",
+          "everyone"
+        ]
+      ]
+    }
+  ]
+}

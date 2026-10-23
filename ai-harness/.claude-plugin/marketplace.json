@@ -1,0 +1,21 @@
+{
+  "name": "ai-harness",
+  "owner": {
+    "name": "Tony Thomas"
+  },
+  "metadata": {
+    "description": "Harness for building AI apps with Claude Code."
+  },
+  "plugins": [
+    {
+      "name": "ai-harness",
+      "source": "./",
+      "description": "Harness for building AI apps with Claude Code."
+    },
+    {
+      "name": "ai-harness-web3",
+      "source": "./web3",
+      "description": "Web3 add-on: Blockscout web3-dev, on-chain review, DAO governance review and proposal writing."
+    }
+  ]
+}

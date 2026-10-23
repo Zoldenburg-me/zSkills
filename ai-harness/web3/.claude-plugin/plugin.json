@@ -1,0 +1,7 @@
+{
+  "name": "ai-harness-web3",
+  "version": "0.1.0",
+  "description": "Web3 add-on for ai-harness: Blockscout web3-dev, on-chain review, DAO governance review and proposal writing.",
+  "author": { "name": "Tony Thomas" },
+  "license": "MIT"
+}
