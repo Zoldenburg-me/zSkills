@@ -106,7 +106,8 @@ claude plugin install ai-harness@ai-harness
 ### session-loop requirements
 
 - The `agent-tracker` MCP (the board), the Claude desktop app's session tools
-  (`start_session`, `SendMessage`), a GitHub repo with Devin review
+  (`start_session`, `SendMessage`), a GitHub repo with Devin review, and an
+  authenticated `gh` CLI
 - `skill-router`, `agent-router` and `git-workflow` for the worker loop;
   `agent-router` and `git-workflow` ship inside `ai-harness`
 
