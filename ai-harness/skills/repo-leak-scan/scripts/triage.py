@@ -36,6 +36,15 @@ def mask(s, keep_start=4, keep_end=2):
     return f"{s[:keep_start]}…{s[-keep_end:]} ({len(s)} chars)"
 
 
+# Token-shaped runs (mixed case and a digit, or an AWS key id) in free text such as a disclosure snippet.
+# shortcut: a heuristic, misses digit-free or symbol-split secrets; upgrade by running the gitleaks rules over the text.
+TOKEN_RE = re.compile(r"(?=[\w+=-]*[a-z])(?=[\w+=-]*[A-Z])(?=[\w+=-]*\d)[\w+=-]{20,}|\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")
+
+
+def mask_tokens(text):
+    return TOKEN_RE.sub(lambda m: mask(m.group()), text)
+
+
 # ------------------------------------------------------------ sanitize
 
 def sanitize_trufflehog():
@@ -48,9 +57,13 @@ def sanitize_trufflehog():
         except ValueError:
             continue
         raw = d.get("Raw") or d.get("RawV2") or ""
+        values = [d.pop(k, None) for k in ("Raw", "RawV2", "Redacted")][:2]
+        out = json.dumps(d)
+        # detectors can repeat the secret in ExtraData; values under 8 chars would rewrite unrelated JSON
+        for v in (v for v in values if v and len(v) >= 8):
+            out = out.replace(json.dumps(v)[1:-1], json.dumps(mask(v))[1:-1])
+        d = json.loads(out)
         d["masked"] = mask(raw)
-        for k in ("Raw", "RawV2", "Redacted"):
-            d.pop(k, None)
         print(json.dumps(d))
 
 
@@ -145,7 +158,7 @@ def merge(workdir):
                 put(dict(_key=("disclosure", w.get("commit"), w.get("file")), kind="disclosure",
                          detectors=["keywords:" + ",".join(d["keywords"][:6])], value="",
                          file=w.get("file", ""), commit=w.get("commit", ""), source=w.get("source"),
-                         snippet=d["text"][:1500]))
+                         snippet=mask_tokens(d["text"][:1500])))
                 continue
             w = d["first"]
             val = d["value"]
@@ -206,7 +219,7 @@ def evidence_for(c, repo):
     ev = {"repository": f"{repo} (public on GitHub)", "kind": c["kind"],
           "where": c.get("source"), "file": c.get("file"), "detector": c.get("detectors")}
     if c["kind"] == "disclosure":
-        ev["text"] = c["snippet"]
+        ev["text"] = mask_tokens(c["snippet"])   # masked at merge too; older candidates.jsonl files were not
     else:
         ev.update(value=c.get("value"), line=c.get("snippet"), note=c.get("note") or c.get("verify_note"),
                   still_in_current_tree=c.get("in_head"), occurrences=c.get("occurrences"))

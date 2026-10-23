@@ -2,6 +2,8 @@
 
 Measures how many planted flaws the auditor finds (recall) and how often it raises false alarms on clean code.
 
+**Never install, run or deploy `fixtures/seeded/`.** It is vulnerable on purpose: open admin routes, no webhook signature check, and a typosquatted dependency (`axois`) that `npm install` would fetch. The auditor only reads it.
+
 - `fixtures/seeded/`: a small Next.js + Supabase + Stripe + OpenAI app ("Promptly") with 20 planted flaws. All keys are fake.
 - `fixtures/clean/`: the same app with every flaw fixed properly. It has no known flaws, so any Critical or High finding there is a false positive.
 - `answer-key.json`: the planted flaws, their expected severity and the terms a finding must contain to count. Never let the auditor see this file.

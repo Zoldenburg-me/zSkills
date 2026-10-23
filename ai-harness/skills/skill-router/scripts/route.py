@@ -177,6 +177,14 @@ def tokens(text):
     return [t for t in re.findall(r"[a-z0-9][a-z0-9+#.-]{1,}", text.lower().replace("_", "-")) if t not in STOP]
 
 
+def resolve(names, cat):
+    """Map bare names to the catalog key, which may carry a plugin namespace (ai-harness:security-review)."""
+    def pick(n):
+        found = sorted((k for k in cat if k.endswith(":" + n)), key=lambda k: (not k.startswith("ai-harness:"), k))
+        return n if n in cat or not found else found[0]
+    return [pick(n) for n in names]
+
+
 def shortlist(cat, ctx, size, forced=()):
     # The task decides relevance; repo signals only break ties (repo fit is Jev's second question).
     langs = " ".join(EXT_WORDS.get(e, "") for e in ctx["repo"]["file_types"])
@@ -403,10 +411,10 @@ def main():
     cat = build_catalog(a.listing)
     ctx = repo_context(task)
     change = a.change if a.change is not None else bool(CHANGE_RE.search(task))
-    baseline = ALWAYS_ON_CHANGE if change else []
+    baseline = resolve(ALWAYS_ON_CHANGE, cat) if change else []
     key = None if a.no_score else api_key()
     size = (a.shortlist or (SHORTLIST_API if key or a.no_score else SHORTLIST_MCP)) + len(baseline)
-    short = shortlist(cat, ctx, size, baseline + [n for n in ALWAYS_SCORE if n not in baseline])
+    short = shortlist(cat, ctx, size, baseline + [n for n in resolve(ALWAYS_SCORE, cat) if n not in baseline])
     for name, obj in (("context", ctx), ("catalog", cat), ("shortlist", short), ("baseline", baseline)):
         json.dump(obj, open(os.path.join(a.workdir, f"{name}.json"), "w"), indent=1)
     by_src = Counter(s["source"] for s in cat.values())

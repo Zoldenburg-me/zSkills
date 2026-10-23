@@ -251,7 +251,7 @@ def main():
         sys.exit("empty catalog: pass --listing or install agents in ~/.claude/agents")
     ctx = sr.repo_context(task)
     change = a.change if a.change is not None else bool(sr.CHANGE_RE.search(task))
-    baseline = [n for n in ALWAYS_ON_CHANGE if n in cat] if change else []
+    baseline = [n for n in sr.resolve(ALWAYS_ON_CHANGE, cat) if n in cat] if change else []
     short = sr.shortlist(cat, ctx, a.shortlist, baseline)
     for name, obj in (("context", ctx), ("catalog", cat), ("shortlist", short), ("baseline", baseline)):
         json.dump(obj, open(os.path.join(a.workdir, f"{name}.json"), "w"), indent=1)
