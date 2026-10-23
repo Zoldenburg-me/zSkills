@@ -1,0 +1,19 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { requireUser } from "@/lib/supabase/server";
+import { admin } from "@/lib/supabase/admin";
+
+const Body = z.object({ id: z.string().uuid() });
+
+export async function DELETE(req: Request) {
+  const { supabase, user } = await requireUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+  if (profile?.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const parsed = Body.safeParse(await req.json());
+  if (!parsed.success) return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+  const { error } = await admin.auth.admin.deleteUser(parsed.data.id);
+  if (error) return NextResponse.json({ error: "Delete failed" }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}

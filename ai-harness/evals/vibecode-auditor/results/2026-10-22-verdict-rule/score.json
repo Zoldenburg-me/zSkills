@@ -1,0 +1,28 @@
+{
+  "recall": "21/21",
+  "recall_by_level": {
+    "Low": "2/2",
+    "Medium": "3/3",
+    "High": "10/10",
+    "Critical": "6/6"
+  },
+  "severity_agrees_within_one": "21/21",
+  "missed": [],
+  "seeded_extra_findings": [
+    "| 19 | medium | no server-side input validation on any route | all app/api/*/route.ts | every route destructures `await req.json()` with no schema (for example ",
+    "| 20 | medium | no tests at all, including auth, payments and data access | whole project | no test files and no test script in package.json:3 | add tests for t",
+    "| 23 | low | editor has no loading or error state and crashes on an api error | components/editor.tsx:20-21 | `setresult(data.choices[0].message.content)` with "
+  ],
+  "clean_false_positives_critical_high": [],
+  "clean_findings_medium_low": 9,
+  "verdict_seeded": {
+    "expected": "no",
+    "stated": "no",
+    "ok": true
+  },
+  "verdict_clean": {
+    "expected": "yes",
+    "stated": "yes",
+    "ok": true
+  }
+}
