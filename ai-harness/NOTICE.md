@@ -81,4 +81,4 @@ SOFTWARE.
 
 ## Zoldenburg skills
 
-skill-router, agent-router, session-loop (and its sessions-rules.md), security-audit, security-fix, repo-leak-scan, gdpr-compliance, deep-research, onchain-review, governance-review, dao-proposal-writer, the leak-check command, the harness-init skill and the vibecode-auditor agent. Licences not stated in the files.
+skill-router, agent-router, session-loop (and its sessions-rules.md), security-audit, security-fix, repo-leak-scan, gdpr-compliance, deep-research, onchain-review, governance-review, dao-proposal-writer, the leak-check command, the harness-init skill and the vibecode-auditor agent. MIT, see `LICENSE` in this folder.
