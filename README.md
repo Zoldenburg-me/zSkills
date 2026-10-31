@@ -31,54 +31,56 @@ claude plugin marketplace add ./zSkills/ai-harness
 claude plugin install ai-harness@ai-harness
 ```
 
-### Codex CLI
+### Codex CLI and OpenCode
 
-Codex discovers skills from `.agents/skills/` directories. Clone the repo
-into your project or link it:
-
-```bash
-git clone git@github.com:Zoldenburg-me/zSkills.git
-# Symlink the skills into your repo so Codex finds them
-ln -sfn "$PWD/zSkills/.agents/skills" .agents/
-```
-
-Or copy individual skills:
-
-```bash
-cp -r zSkills/repo-leak-scan .agents/skills/
-```
-
-Codex loads the skills automatically on next launch. Use `$skill-name` to
-invoke one, or let Codex pick the right skill from the description.
-
-For an agent definition, place the file in your project:
-
-```bash
-cp zSkills/vibecode-auditor/vibecode-auditor.md .agents/agents/
-```
-
-### OpenCode
-
-OpenCode discovers skills from `.opencode/skills/` and agents from
-`.opencode/agents/`. Clone the repo and symlink the discovery directories:
+Both read skills from `.agents/skills/` (Codex walks up from the working
+directory to the repo root; OpenCode does the same and also reads
+`.claude/skills/`). This repo's `.agents/skills/` links to every `ai-harness`
+skill, including the web3 add-on, under the skill's own name. Link it into
+your project:
 
 ```bash
 git clone git@github.com:Zoldenburg-me/zSkills.git
-ln -sfn "$PWD/zSkills/.opencode/skills" .opencode/
-ln -sfn "$PWD/zSkills/.opencode/agents" .opencode/
-ln -sfn "$PWD/zSkills/.opencode/commands" .opencode/
+mkdir -p .agents
+ln -sfn "$PWD/zSkills/.agents/skills" .agents/skills
 ```
 
-Or reference individual skills in `opencode.jsonc`:
+Or copy single skills (`-L` copies the folder behind the link):
 
-```jsonc
-{
-  "plugins": ["./zSkills/ai-harness"]
-}
+```bash
+mkdir -p .agents/skills
+cp -rL zSkills/.agents/skills/repo-leak-scan .agents/skills/
 ```
 
-The `opencode.jsonc` at the repo root also ships MCP server config for
-Context7 and system1 (TypeSafe scoring).
+In Codex, use `$skill-name` to invoke one, or let it pick from the
+description. If your project already has a `.agents/skills/` folder, copy the
+skills in instead of linking the folder.
+
+OpenCode also gets the 15 agents and 3 of the 4 commands, in
+`.opencode/agents/` and `.opencode/commands/`:
+
+```bash
+mkdir -p .opencode
+ln -sfn "$PWD/zSkills/.opencode/agents" .opencode/agents
+ln -sfn "$PWD/zSkills/.opencode/commands" .opencode/commands
+```
+
+- The agents are subagents with the same prompts as the Claude versions. Each
+  one's Claude `tools` list becomes an OpenCode `permission` map, so the
+  reviewers can run shell commands but cannot edit files. No model is pinned:
+  they use your OpenCode default.
+- `/leak-check` looks for the scanner in `./zSkills/ai-harness`. Set
+  `ZSKILLS_AI_HARNESS` to the `ai-harness` folder if you cloned elsewhere.
+- `/loop-status` is left out: it reads Claude Code transcripts.
+
+`opencode.jsonc` at the repo root configures the Context7 MCP server for
+OpenCode sessions opened in this repo. The system1 server (TypeSafe scoring for
+skill-router and repo-leak-scan) is listed but disabled; set `"enabled": true`
+to use it. Copy the `mcp` block into your own project's config to use them
+there.
+
+Codex has no file format here for agents or commands; `AGENTS.md` (see
+`/ai-harness:harness-init`) carries project instructions for both tools.
 
 ## Skills
 
@@ -105,17 +107,17 @@ Context7 and system1 (TypeSafe scoring).
 
 ## Multi-agent compatibility
 
-This repo ships discovery directories for three agent platforms:
-
-| Platform | Skills | Agents | Commands | Config |
+| Platform | Skills | Agents | Commands | MCP config |
 |---|---|---|---|---|
-| **Claude Code** | `~/.claude/skills/` or plugin | `~/.claude/agents/` or plugin | Plugin `/commands` | `ai-harness/` plugin |
-| **Codex CLI** | `.agents/skills/` | `.agents/agents/` (AGENTS.md) | N/A (slash commands) | `.codex/config.toml` |
-| **OpenCode** | `.opencode/skills/` | `.opencode/agents/` | `.opencode/commands/` | `opencode.jsonc` |
+| **Claude Code** | `~/.claude/skills/` or the plugin | `~/.claude/agents/` or the plugin | the plugin | `ai-harness/.mcp.json` |
+| **Codex CLI** | `.agents/skills/` | — | — | — |
+| **OpenCode** | `.agents/skills/` | `.opencode/agents/` | `.opencode/commands/` | `opencode.jsonc` |
 
-The same `SKILL.md` format works across all three. Symlinked directories
-(`.agents/skills/`, `.opencode/skills/`) let you use the repo's skills without
-copying them. |
+`ai-harness/` is the source of truth. `.agents/skills/`, `.opencode/agents/`
+and `.opencode/commands/` are generated from it by `scripts/sync-compat.py`:
+run it after changing a skill, agent or command there and commit the result
+(`--check` exits 1 if they are stale). Git symlinks need `core.symlinks=true`
+on Windows.
 
 ### repo-leak-scan requirements
 
