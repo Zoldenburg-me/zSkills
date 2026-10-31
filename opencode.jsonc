@@ -1,0 +1,13 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp@4.4.2"]
+    },
+    "system1": {
+      "command": "uvx",
+      "args": ["system1-mcp==0.2.1"]
+    }
+  }
+}
