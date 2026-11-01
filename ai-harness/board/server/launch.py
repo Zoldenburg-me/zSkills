@@ -16,8 +16,10 @@ def token_from_file(path):
             if os.fstat(f.fileno()).st_mode & 0o077:
                 sys.exit(f"agent-tracker: {path} is readable by group or others; run chmod 600 {path}.")
             token = f.read().strip()
-    except OSError:
+    except FileNotFoundError:
         token = ""
+    except OSError as e:
+        sys.exit(f"agent-tracker: can't read {path}: {e.strerror}.")
     if not token:
         sys.exit(f"agent-tracker: no token in {path}; run `board token <name>` to write it.")
     return token

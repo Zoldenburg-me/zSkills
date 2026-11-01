@@ -30,6 +30,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -62,8 +63,10 @@ def whoami(url, token):
             return r.status
     except urllib.error.HTTPError as e:
         return e.code
-    except (OSError, ValueError) as e:
-        sys.exit(f"Can't reach {url}: {e}")
+    except ValueError:  # the message would quote the header, token included
+        sys.exit(f"Can't reach {url}: bad URL or token. Nothing changed.")
+    except OSError as e:
+        sys.exit(f"Can't reach {url}: {e}. Nothing changed.")
 
 
 def url_ok(url):
@@ -81,6 +84,21 @@ def board_file(name):
     return os.path.join(CONF, f"{name}.board.json")
 
 
+def prompt_token(url):
+    # without a tty getpass reads stdin with echo, which would put the token into an agent's chat
+    if not sys.stdin.isatty():
+        sys.exit("Run board token yourself in a terminal.")
+    token = getpass.getpass(f"Token for {url} (input hidden): ").strip()
+    if token and not token.isprintable():
+        sys.exit("That token has control characters; nothing changed.")
+    return token
+
+
+try:
+    import tomllib
+except ImportError:  # Python < 3.11, e.g. macOS's python3
+    tomllib = None
+
 TOML_HEADER = re.compile(r"^\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*(#.*)?$")
 
 
@@ -90,25 +108,32 @@ def toml_set(text, server, block):
     shortcut: line-based, so a table header written inside a multi-line string would confuse it;
     the result is re-parsed with tomllib where Python has it (3.11+)."""
     ours = re.compile(r'mcp_servers\s*\.\s*"?%s"?(\s*\..*)?' % re.escape(server))
-    out, skip, found = [], False, False
+    out, pending, skip, found = [], [], False, False
     for line in text.splitlines(keepends=True):
         m = TOML_HEADER.match(line)
         if m:
             skip = bool(ours.fullmatch(m.group(1)))
             found = found or skip
+            if not skip:
+                out += pending  # comments and blank lines just above the next table belong to it
+            pending = []
         if not skip:
             out.append(line)
+        elif not line.strip() or line.lstrip().startswith("#"):
+            pending.append(line)
+        else:
+            pending = []
     new = "".join(out)
+    if re.search(r"(?<![\w-])%s(?![\w-])" % re.escape(server), new):
+        raise ValueError(f"{server} is still defined in a form this script doesn't edit (dotted key or inline table); "
+                         "remove it by hand and run board add again")
     if block:
         new = new.rstrip("\n") + ("\n\n" if new.strip() else "") + block
-    try:
-        import tomllib
-    except ImportError:
-        return new, found
-    try:
-        tomllib.loads(new)
-    except tomllib.TOMLDecodeError as e:
-        raise ValueError(f"the result would not be valid TOML ({e})")
+    if tomllib:
+        try:
+            tomllib.loads(new)
+        except tomllib.TOMLDecodeError as e:
+            raise ValueError(f"the result would not be valid TOML ({e})")
     return new, found
 
 
@@ -117,14 +142,21 @@ def codex_block(server, env):
     return f'[mcp_servers.{server}]\ncommand = "python3"\nargs = [{json.dumps(LAUNCH)}]\nenv = {{ {envs} }}\n'
 
 
+def mcp_servers(cfg):
+    """opencode.json's server map: "mcp", or "mcp"."servers" in a file already in the newer layout."""
+    if not isinstance(cfg, dict) or not isinstance(cfg.setdefault("mcp", {}), dict):
+        raise ValueError('expected a JSON object with an "mcp" object')
+    servers = cfg["mcp"].get("servers")
+    return servers if isinstance(servers, dict) else cfg["mcp"]
+
+
 def json_set(text, server, entry):
     """Same as toml_set for opencode.json's "mcp" object; entry None removes it."""
     cfg = json.loads(text) if text.strip() else {}
-    if not isinstance(cfg, dict) or not isinstance(cfg.setdefault("mcp", {}), dict):
-        raise ValueError('expected a JSON object with an "mcp" object')
-    found = cfg["mcp"].pop(server, None) is not None
+    servers = mcp_servers(cfg)
+    found = servers.pop(server, None) is not None
     if entry:
-        cfg["mcp"][server] = entry
+        servers[server] = entry
     return json.dumps(cfg, indent=2) + "\n", found
 
 
@@ -138,23 +170,26 @@ def write_private(path, text, keep_mode=True):
             mode = os.stat(path).st_mode & 0o777
         except FileNotFoundError:
             pass
-    tmp = path + ".board-tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
-    os.fchmod(fd, mode)
-    with os.fdopen(fd, "w") as f:
-        f.write(text)
-    os.replace(tmp, path)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=os.path.basename(path) + ".")
+    try:
+        os.fchmod(fd, mode)
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        os.unlink(tmp)
+        raise
 
 
 def edit(tool, server, env):
     """Set (env) or remove (env None) the server in the codex or opencode config."""
     path = CODEX if tool == "codex" else OPENCODE
     try:
-        with open(path) as f:
-            text = f.read()
-    except FileNotFoundError:
-        text = ""
-    try:
+        try:
+            with open(path) as f:
+                text = f.read()
+        except FileNotFoundError:
+            text = ""
         if tool == "codex":
             new, found = toml_set(text, server, env and codex_block(server, env))
         else:
@@ -162,13 +197,16 @@ def edit(tool, server, env):
     except ValueError as e:
         sys.exit(f"Can't update {path}: {e}. Nothing changed.")
     if env or found:
+        if tool == "codex" and text and not tomllib:
+            shutil.copy2(path, path + ".board-bak")
+            print(f"This Python has no tomllib, so the new {path} was not validated; the old one is in {path}.board-bak.")
         write_private(path, new)
     return path, found
 
 
 def ask_token(url):
     for _ in range(3):
-        token = getpass.getpass(f"Token for {url} (input hidden): ").strip()
+        token = prompt_token(url)
         code = whoami(url, token) if token else "empty"
         if code == 200:
             return token
@@ -190,7 +228,8 @@ def add(name, url, tool, token_file):
         env["AGENT_DASH_TOKEN_FILE"] = token_file
     try:
         shutil.copytree(SRC, DEST, dirs_exist_ok=True)
-        write_private(board_file(name), json.dumps({"url": url, "token_file": token_file or os.path.join(CONF, f"{name}.token")}) + "\n")
+        if token_file:  # only boards that read a token file; `board token` refuses the rest
+            write_private(board_file(name), json.dumps({"url": url, "token_file": token_file}) + "\n")
         if tool == "claude":
             cmd = ["add", server, "--scope", "user", *[a for k, v in env.items() for a in ("-e", f"{k}={v}")],
                    "--", "python3", LAUNCH]
@@ -198,6 +237,8 @@ def add(name, url, tool, token_file):
             if out.returncode and claude("get", server).returncode == 0:  # already there: replace it
                 if claude("remove", server, "-s", "user").returncode == 0:
                     out = claude(*cmd)
+                    if out.returncode:
+                        sys.exit(f"The old {server} was removed but the new one failed: {out.stderr.strip()}")
             if out.returncode:
                 sys.exit(out.stderr.strip() or "claude mcp add failed")
             where = "Claude Code"
@@ -215,19 +256,21 @@ def token(name):
     try:
         with open(board_file(name)) as f:
             board = json.load(f)
-    except (OSError, ValueError):
-        sys.exit(f"No board {name} here; run `board add {name} <url>` first.")
-    secret = getpass.getpass(f"Token for {board['url']} (input hidden): ").strip()
+        url, path = board["url"], board["token_file"]
+    except (OSError, ValueError, KeyError, TypeError):
+        sys.exit(f"No token-file board {name} here; run `board add {name} <url> --tool codex|opencode` "
+                 "(or --tool claude --token-file PATH) first.")
+    secret = prompt_token(url)
     if not secret:
         sys.exit("No token entered; nothing changed.")
-    try:
-        write_private(board["token_file"], secret + "\n", keep_mode=False)
-    except OSError as e:
-        sys.exit(f"Can't write {board['token_file']}: {e}")
-    code = whoami(board["url"], secret)
+    code = whoami(url, secret)
     if code != 200:
-        sys.exit(f"Saved to {board['token_file']}, but {board['url']} rejected it (HTTP {code}). Run `board token {name}` again.")
-    print(f"OK: token saved to {board['token_file']} and accepted by {board['url']}.")
+        sys.exit(f"{url} rejected that token (HTTP {code}); {path} is unchanged.")
+    try:
+        write_private(path, secret + "\n", keep_mode=False)
+    except OSError as e:
+        sys.exit(f"The token works, but {path} couldn't be written: {e}")
+    print(f"OK: {url} accepted the token; saved to {path}.")
 
 
 def list_boards(tool):
@@ -244,10 +287,10 @@ def list_boards(tool):
             if tool == "codex":
                 names = sorted({m.group(1) for m in re.finditer(r'(?m)^\s*\[\s*mcp_servers\s*\.\s*"?(agent-tracker[a-z0-9-]*)', text)})
             else:
-                names = sorted(k for k in json.loads(text or "{}").get("mcp", {}) if k.startswith("agent-tracker"))
+                names = sorted(k for k in mcp_servers(json.loads(text or "{}")) if k.startswith("agent-tracker"))
         except FileNotFoundError:
             names = []
-        except (OSError, ValueError, AttributeError) as e:
+        except (OSError, ValueError) as e:
             sys.exit(f"Can't read {path}: {e}")
     print("\n".join(names) or f"No agent-tracker boards registered with {tool}.")
 
@@ -260,14 +303,19 @@ def remove(name, tool):
         print(out.stdout.strip() or out.stderr.strip())
         if out.returncode:
             sys.exit(1)
-        return
+    else:
+        try:
+            path, found = edit(tool, server, None)
+        except OSError as e:
+            sys.exit(f"Can't update the {tool} config: {e}")
+        if not found:
+            sys.exit(f"No {server} in {path}.")
+        print(f"Removed {server} from {path}.")
     try:
-        path, found = edit(tool, server, None)
-    except OSError as e:
-        sys.exit(f"Can't update the {tool} config: {e}")
-    if not found:
-        sys.exit(f"No {server} in {path}.")
-    print(f"Removed {server} from {path}.")
+        with open(board_file(name)) as f:
+            print(f"The token file {json.load(f)['token_file']} is kept for other tools on this board; delete it when none use it.")
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
 
 
 def main(argv):

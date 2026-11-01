@@ -109,4 +109,52 @@ with tempfile.TemporaryDirectory() as tmp:
         assert "agent-tracker-main" not in open(path).read()
     assert "[mcp_servers.other]" in open(os.path.join(env["CODEX_HOME"], "config.toml")).read()
     assert run("add", "main", "http://evil.com", "--tool", "codex").returncode != 0
+# Comments above the next table survive removing ours; a dotted or inline leftover entry is refused.
+kept = '[mcp_servers.agent-tracker-main]\ncommand = "x"\n\n# about other\n[mcp_servers.other]\n'
+assert "# about other\n[mcp_servers.other]" in board.toml_set(kept, "agent-tracker-main", None)[0]
+for leftover in ('[mcp_servers]\nagent-tracker-main = { command = "x" }\n',
+                 'mcp_servers.agent-tracker-main.command = "x"\n'):
+    try:
+        board.toml_set(leftover, "agent-tracker-main", '[mcp_servers.agent-tracker-main]\n')
+        raise AssertionError(leftover)
+    except ValueError:
+        pass
+# OpenCode files already using "mcp": {"servers": {...}} get the entry there.
+d = json.loads(board.json_set('{"mcp": {"servers": {"o": {}}}}', "agent-tracker-main", {"type": "local"})[0])
+assert d["mcp"]["servers"]["agent-tracker-main"] and "agent-tracker-main" not in d["mcp"]
+
+with tempfile.TemporaryDirectory() as tmp:
+    # Without tomllib the old config.toml is backed up and the skipped validation is said.
+    board.CODEX, real_tomllib = os.path.join(tmp, "config.toml"), board.tomllib
+    with open(board.CODEX, "w") as f:
+        f.write('[mcp_servers.other]\ncommand = "npx"\n')
+    board.tomllib = None
+    board.edit("codex", "agent-tracker-main", {"AGENT_DASH_URL": "https://board.example.com"})
+    board.tomllib = real_tomllib
+    assert open(board.CODEX + ".board-bak").read() == '[mcp_servers.other]\ncommand = "npx"\n'
+    assert "[mcp_servers.agent-tracker-main]" in open(board.CODEX).read()
+
+    # `board token` checks the token before writing it: a rejected token leaves the old file alone.
+    board.CONF, tf = tmp, os.path.join(tmp, "main.token")
+    board.write_private(board.board_file("main"), json.dumps({"url": "https://board.example.com", "token_file": tf}))
+    board.write_private(tf, "old-token\n", keep_mode=False)
+    board.prompt_token = lambda url: "new-token"
+    board.whoami = lambda url, token: 401
+    try:
+        board.token("main")
+        raise AssertionError("rejected token accepted")
+    except SystemExit as e:
+        assert "unchanged" in str(e) and "new-token" not in str(e)
+    assert open(tf).read() == "old-token\n"
+    board.whoami = lambda url, token: 200
+    board.token("main")
+    assert open(tf).read() == "new-token\n" and os.stat(tf).st_mode & 0o777 == 0o600
+
+    # Both prompts refuse to run without a terminal, since getpass would echo stdin.
+    env = {**os.environ, "AGENT_TRACKER_HOME": tmp}
+    for args in (["token", "main"], ["add", "x", "https://board.example.com"]):
+        out = subprocess.run([sys.executable, "-I", os.path.join(here, "bin", "board"), *args], env=env,
+                             input="piped-token\n", capture_output=True, text=True)
+        assert out.returncode != 0 and "yourself in a terminal" in out.stderr, out
+        assert "piped-token" not in out.stdout + out.stderr
 print("board self-check ok")
