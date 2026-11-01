@@ -79,6 +79,36 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+## Cloudflare security-audit-skill (cloudflare/security-audit-skill, commit c1c8a8c)
+Skill: security-audit, all files copied unchanged except one added paragraph in SKILL.md (the hand-off line to `/security-fix queue`).
+
+MIT License
+
+Copyright (c) 2025-2026 Cloudflare, Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+## Trail of Bits skills (security/ add-on)
+Nine plugins under CC BY-SA 4.0, not MIT. See `security/NOTICE.md` and `security/LICENSE`.
+
 ## Zoldenburg skills
 
-skill-router, agent-router, session-loop (and its sessions-rules.md), security-audit, security-fix, repo-leak-scan, gdpr-compliance, deep-research, onchain-review, governance-review, dao-proposal-writer, the leak-check command, the harness-init skill and the vibecode-auditor agent. MIT, see `LICENSE` in this folder.
+skill-router, agent-router, session-loop (and its sessions-rules.md), security-fix, repo-leak-scan, gdpr-compliance, deep-research, onchain-review, governance-review, dao-proposal-writer, the leak-check command, the harness-init skill and the vibecode-auditor agent. MIT, see `LICENSE` in this folder.
+
+The board add-on's `board/server/` (mcp_server.py, remote.py, db.py, hooks/claude_hook.py) is copied from Zoldenburg-me/dashboard-ai commit 175f42b.

@@ -99,6 +99,34 @@ def disclosure_hits(text):
     return (sorted(strong | weak) if 2 * len(strong) + len(weak) >= 2 else [])
 
 
+# Links to a Claude conversation (Claude Code adds "Claude-Session: <url>" trailers). Anyone
+# with access to the conversation can read the whole session, so they never go into a repo.
+SESSION_LINK_RE = re.compile(
+    r"https?://(?:www\.)?claude\.ai/(?:code/session_[A-Za-z0-9]{8,}|chat/[0-9a-f-]{36}|share/[0-9a-f-]{36})")
+
+# Commit identities git guesses as user@<machine hostname> when user.email is unset. The
+# hostname reveals the machine and often the network (a university or ISP DHCP name).
+LOCAL_HOST_TLDS = ("local", "lan", "home", "localdomain", "internal", "home.arpa", "fritz.box", "box", "router")
+HOST_LABEL_RE = re.compile(
+    r"(?i)^(?:.*\d{4,}.*|.*(?:wlan|wifi|dhcp|dyn|pool|client|cpe|dsl|cable|vpn|eduroam|macbook|"
+    r"imac|mbp|laptop|desktop|-pc|ip-\d).*)$")
+
+
+def hostname_identity(email):
+    """Why `email` looks like a machine hostname rather than a mailbox, or None."""
+    local, _, dom = email.lower().rpartition("@")
+    if not local or not dom:
+        return None
+    if dom.endswith(".noreply.github.com") or dom == "noreply.github.com":
+        return None
+    if any(dom == t or dom.endswith("." + t) for t in LOCAL_HOST_TLDS):
+        return f"local network name '{dom}'"
+    first = dom.split(".")[0]
+    if dom.count(".") >= 2 and HOST_LABEL_RE.match(first):
+        return f"machine hostname '{dom}'"
+    return None
+
+
 PASSWORD_FIELD_RE = re.compile(r"""(?i)type=["']password["'][^>]*?\bvalue=["']([^"'$<{]{8,})["']""")
 
 DOC_EXT = re.compile(r"\.(md|mdx|txt|rst|adoc)$", re.I)
@@ -194,6 +222,9 @@ def scan_text(F, text, where):
     for m in PASSWORD_FIELD_RE.finditer(text):
         F.add("prefilled-password", "high", m.group(1), where, text.strip(),
               "secret prefilled into an HTML password field")
+    for m in SESSION_LINK_RE.finditer(text):
+        F.add("claude-session-link", "high", m.group(0), where, text.strip(),
+              "link to a Claude conversation")
     for m in MNEMONIC_RE.finditer(text):
         if m.group(2).lower() != TEST_MNEMONIC:
             F.add("mnemonic", "high", m.group(2), where, text.strip())
@@ -299,7 +330,12 @@ def main():
 
     for (nm, em), commits in identities.items():
         dom = em.rpartition("@")[2].lower()
-        if dom in WEBMAIL:
+        host = hostname_identity(em)
+        if host:
+            F.add("author-identity", "high", f"{nm} <{em}>",
+                  dict(source="commit-metadata"), f"author/committer on {len(commits)} commits", host)
+            F.items[("author-identity", f"{nm} <{em}>", "commit-metadata")]["all_commits"] = sorted(commits)
+        elif dom in WEBMAIL:
             F.add("author-identity", "high", f"{nm} <{em}>",
                   dict(source="commit-metadata"), f"author/committer on {len(commits)} commits",
                   "personal webmail in commit metadata")

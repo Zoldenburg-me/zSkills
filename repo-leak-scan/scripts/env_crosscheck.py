@@ -36,6 +36,12 @@ def parse(path):
         yield k, v
 
 
+def is_secret(k, v):
+    # client ids are checked too (they can be private), only plain config is skipped
+    return not (len(v) < 12 or v.lower() in ("true", "false") or v.startswith(("http://", "https://"))
+                or PUBLIC_VALUE.match(v) or (k.endswith(NOT_SECRET) and not k.endswith("CLIENT_ID")))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("repo")
@@ -45,9 +51,7 @@ def main():
     found = []
     for rel, path in env_files(a.repo):
         for k, v in parse(path):
-            # client ids are checked too (they can be private), only plain config is skipped
-            if len(v) < 12 or v.lower() in ("true", "false") or v.startswith(("http://", "https://")) or PUBLIC_VALUE.match(v) or \
-                    (k.endswith(NOT_SECRET) and not k.endswith("CLIENT_ID")):
+            if not is_secret(k, v):
                 continue
             commits = subprocess.run(["git", "-C", a.repo, "log", "--all", "-S" + v, "--format=%H %ad", "--date=short"],
                                      capture_output=True, text=True).stdout.split("\n")

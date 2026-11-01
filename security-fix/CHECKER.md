@@ -19,7 +19,7 @@ Do all of these, in order, and report what you saw, not what you expect:
 
 1. Re-run the judge yourself. It builds the test command from <RUN>/fix-config.json and takes the
    test files from the diff; nothing about it is the fixer's choice:
-   python3 ~/.claude/skills/security-fix/scripts/judge.py --run-dir <RUN> --row <n> \
+   python3 $SKILL_DIR/scripts/judge.py --run-dir <RUN> --row <n> \
      --repo <path> --work-dir <scratch>/judge        (rejection mode: add --expect-green-on-base)
    Do not trust any judge output the fixer showed you. If the worktree is dirty, send back.
 

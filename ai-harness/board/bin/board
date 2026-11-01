@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""Manage extra agent-tracker boards. Run it yourself in a terminal (it asks for the token
+with hidden input, so the token never goes through a chat):
+
+  board add <name> <url>   check the token, then register MCP server agent-tracker-<name>
+  board list               the boards registered with Claude Code
+  board remove <name>      unregister agent-tracker-<name>
+
+The primary board comes from the plugin's Board URL and token. Each extra board is its own
+user-scope MCP server, so its tools show up as mcp__agent-tracker-<name>__tracker_*. The
+server code is copied to ~/.config/agent-tracker/server so it survives plugin updates; run
+`board add` again after updating the plugin to refresh it.
+"""
+import getpass
+import os
+import re
+import shutil
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+
+CONF = os.path.expanduser(os.environ.get("AGENT_TRACKER_HOME", "~/.config/agent-tracker"))
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "server")
+DEST = os.path.join(CONF, "server")
+
+
+def claude(*args):
+    return subprocess.run(["claude", "mcp", *args], capture_output=True, text=True)
+
+
+def whoami(url, token):
+    req = urllib.request.Request(url + "/api/whoami", headers={"Authorization": f"Bearer {token}"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except (urllib.error.URLError, ValueError) as e:
+        sys.exit(f"Can't reach {url}: {e}")
+
+
+def add(name, url):
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,30}", name):
+        sys.exit("Name: lowercase letters, digits and dashes, up to 31 characters.")
+    url = url.strip().rstrip("/")
+    if not url.startswith("https://") and not url.startswith("http://localhost"):
+        sys.exit("The board URL must start with https:// (or http://localhost for a local board).")
+    for _ in range(3):
+        token = getpass.getpass(f"Token for {url} (input hidden): ")
+        code = whoami(url, token)
+        if code == 200:
+            break
+        print(f"That didn't work (HTTP {code}).")
+    else:
+        sys.exit("No working token; nothing changed.")
+    shutil.copytree(SRC, DEST, dirs_exist_ok=True)
+    server = f"agent-tracker-{name}"
+    claude("remove", server, "-s", "user")
+    out = claude("add", server, "--scope", "user",
+                 "-e", f"AGENT_DASH_URL={url}", "-e", f"AGENT_DASH_TOKEN={token}",
+                 "-e", f"AGENT_TRACKER_NAMES={os.path.join(CONF, f'names-{name}.json')}",
+                 "--", "python3", os.path.join(DEST, "launch.py"))
+    if out.returncode:
+        sys.exit(out.stderr.strip() or "claude mcp add failed")
+    print(f"Added {server}. New sessions get its tools as mcp__{server}__tracker_*.")
+
+
+def main(argv):
+    if argv[:1] == ["add"] and len(argv) == 3:
+        add(argv[1], argv[2])
+    elif argv == ["list"]:
+        lines = [l for l in claude("list").stdout.splitlines() if l.startswith("agent-tracker")]
+        print("\n".join(lines) or "No extra boards. The primary board is the plugin's own agent-tracker.")
+    elif argv[:1] == ["remove"] and len(argv) == 2:
+        out = claude("remove", f"agent-tracker-{argv[1]}", "-s", "user")
+        print(out.stdout.strip() or out.stderr.strip())
+    else:
+        sys.exit(__doc__)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

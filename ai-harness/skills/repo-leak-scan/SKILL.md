@@ -133,7 +133,7 @@ allowlist in a public repo also documents what you chose not to worry about.
 ## Files
 
 - `scripts/run.sh` — the whole pipeline
-- `scripts/precommit.py` — git pre-commit gate: the same detectors over the staged diff only (no history, PRs or scoring), plus the identity the commit will use (blocks an unset `user.email`, hostname or webmail address); `--commit-msg FILE` checks the message (commit-msg hook: Claude session links, keys); `--range BASE...HEAD` also checks the range's messages and author/committer emails. Wire it as a pre-commit and commit-msg hook to run it on every commit
+- `scripts/precommit.py` — git pre-commit gate: the same detectors over the staged diff only (no history, PRs or scoring), plus the identity the commit will use (blocks an unset `user.email`, hostname or webmail address); `--commit-msg FILE` checks the message (commit-msg hook: Claude session links, keys); `--range BASE...HEAD` also checks the range's messages and author/committer emails. The global hooks in `~/.config/git/hooks/dispatch` run it on pre-commit and commit-msg
 - `scripts/install-tools.sh` — fetch + checksum-verify gitleaks and trufflehog
 - `scripts/fetch_pr_text.py` — PR/issue titles, bodies, comments, review comments
 - `scripts/scan_private.py` — private data + disclosure candidates

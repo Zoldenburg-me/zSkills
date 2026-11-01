@@ -18,34 +18,48 @@ shipping). Use the arguments if given; otherwise summarise the conversation.
 Name concrete things ("Express routes in services/api", "GDPR data map"), not
 adjectives. This text is what everything is scored against.
 
-## 2. Save your skill listing
+## 2. Run the router with your skill listing
 
-Copy the skills listing from your context (the "skills available for use with
-the Skill tool" block) into `~/.cache/skill-router/listing.md`, one line per
-skill exactly as listed: `- name: description` (a line without a description
-is fine). This is the only way plugin and claude.ai skills that are not on
-disk enter the catalog, and it marks what is invokable right now.
-
-## 3. Run the router
-
-From the repository root (it reads `git` and `package.json` there):
+From the repository root (it reads `git` and `package.json` there), pipe the
+skills listing from your context (the "skills available for use with the
+Skill tool" block) in on stdin, one line per skill exactly as listed:
+`- name: description` (a line without a description is fine). This is the
+only way plugin and claude.ai skills that are not on disk enter the catalog,
+and it marks what is invokable right now. Use stdin, not a shared file:
+parallel sessions overwrite each other's files.
 
 ```bash
-python3 ~/.claude/skills/skill-router/scripts/route.py run \
-  --task "<the task from step 1>" \
-  --listing ~/.cache/skill-router/listing.md
+python3 ${CLAUDE_SKILL_DIR}/scripts/route.py run \
+  --task "<the task from step 1>" --listing - <<'LISTING'
+- name: description
+...
+LISTING
 ```
 
 Options: `--top 3` (most to run), `--sure 0.6` (auto-run cutoff), `--floor 0.25`
-(below this is dropped), `--shortlist 40` (how many BM25 picks Jev scores),
-`--no-score` (BM25 only).
+(below this is dropped), `--shortlist N` (how many BM25 picks Jev scores:
+40 with an API key, 12 without), `--no-score` (BM25 only), `--workdir DIR`.
 
-Scoring needs `TYPESAFE_API_KEY` in the environment or the repo's `.env`. The
-key is read, never printed. Without it the script writes `to_score.jsonl`:
-score those questions with `mcp__system1__fast_verify` if that tool is
-available, write `{"<name>": {"task": p, "repo": p}}` to
-`~/.cache/skill-router/last/scores.json`, and run `route.py report`. With
-neither, judge the BM25 list yourself and say that Jev did not score it.
+## 3. Score
+
+Scoring needs a TypeSafe key. The script looks in `TYPESAFE_API_KEY`, then
+the system1 MCP server's `~/.system1/config.json` (the key `fast_verify`
+uses), then the checkout's `.env`, then the main checkout's `.env`. The script reads the key;
+you never read `.env` or print the key yourself.
+
+Without a key the script writes `to_score.jsonl` in the workdir it prints
+(task fit only, one line per shortlisted skill). Then:
+- Call the system1 MCP's `fast_verify` (`mcp__system1__fast_verify`, or
+  `mcp__plugin_ai-harness_system1__fast_verify` from the ai-harness plugin) once for **every** line, with its
+  `statement`, `evidence`, `yes_means` and `no_means` unchanged. Don't pick a
+  subset, reword the statement, or score skills that are not in the file.
+- Write `{"<id>": {"task": probability}}` to `scores.json` in that workdir.
+  Don't write scores for the baseline skills; they run regardless.
+- Run `route.py report` from the same checkout. A report that still lists
+  "Unscored" skills is incomplete: score them or say so.
+
+With neither a key nor the tool, use `--no-score`, judge the BM25 list
+yourself and say that Jev did not score it.
 
 What goes to TypeSafe: the task text, file-extension counts, dependency names,
 changed file paths, recent commit subjects, and skill names and descriptions.
@@ -54,7 +68,24 @@ something confidential, and offer `--no-score`.
 
 ## 4. Decide
 
-The report has three parts. `p` is `task × repo`: both have to be true.
+**Baseline for a change.** When the task is a code change (it mentions a PR,
+diff, commit, push, merge, branch, staged or uncommitted changes, or a
+`/pull/N` link; force with `--change`, suppress with `--no-change`), the report
+opens with **Always run for a change**: `security-review`, `tidy-context` and
+`leak-check`. These run every time, whatever their score, and do not count
+against `--top`. A missed review costs more than a needless one. Set
+`SKILL_ROUTER_ALWAYS` (comma-separated) to change the list.
+
+How each one runs on a change:
+- `security-review`: over the diff (`git diff <base>...HEAD`), every changed
+  route, input, secret, signature and outbound fetch.
+- `tidy-context`: over the context files the change touches (AGENTS.md,
+  CLAUDE.md, `docs/`, memory, notes). If it touches none, say so in one line.
+- `leak-check`: on a PR or branch, check out its head (a worktree if the
+  checkout is shared) and run it with `--range origin/<base>...HEAD`; on local
+  work, over the staged diff.
+
+The rest of the report has three parts. `p` is `task × repo`: both have to be true.
 
 - **Run**: p ≥ sure, capped at `--top`. Run these unless one plainly
   contradicts the task (Jev reads descriptions, not the skill bodies).
@@ -85,10 +116,14 @@ If the user only asked "which skills fit?", stop after the table.
 
 ## Notes
 
-- Workdir `~/.cache/skill-router/last/` keeps `context.json`, `catalog.json`,
+- The workdir is one per checkout, `~/.cache/skill-router/<repo>-<hash>/`
+  (printed on every run). It keeps `context.json`, `catalog.json`,
   `shortlist.json`, `scores.json`, `report.md`. Each run replaces the scores,
-  so they never mix tasks.
+  so they never mix tasks; two sessions in the same checkout still share it.
 - A skill named in the task text is always shortlisted, whatever BM25 says.
+- `gdpr-compliance` is always shortlisted too, so Jev scores it on every run;
+  it still has to clear the cutoff to run. Set `SKILL_ROUTER_SCORE`
+  (comma-separated) to change that list.
 - The shortlist weighs the task text over repo signals; repo fit is Jev's
   second question, not the keyword step's job.
 - Deprecated skills (description starts with DEPRECATED) and this router are

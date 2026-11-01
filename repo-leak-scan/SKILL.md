@@ -1,6 +1,6 @@
 ---
 name: repo-leak-scan
-description: Scan a git repo's ENTIRE history — every commit on every branch, every PR head (merged, closed or abandoned) and every PR/issue title, body and comment — for leaked API keys and secrets (and check with the provider whether each still works), private data (IBANs, personal emails, phone numbers, home-directory paths, wallet private keys, mnemonics, personal webmail in commit metadata) and text that discloses an exploitable vulnerability or a security decision that leaves a gap. Scores every candidate with TypeSafe for "should not be public", confirms those above a user-chosen cutoff, and has Claude judge the uncertain band. Use this whenever the user wants to audit a repo before making it public, check commits or PRs for leaks, find leaked keys/tokens/passwords, check if secrets still work, look for personal data or IBANs in git history, or asks "did we leak anything", "is this repo safe to open source", "scan for secrets", "gitleaks", "trufflehog" — even if they only mention one of these.
+description: Scan a git repo's ENTIRE history — every commit on every branch, every PR head (merged, closed or abandoned) and every PR/issue title, body and comment — for leaked API keys and secrets (and check with the provider whether each still works), private data (IBANs, personal emails, phone numbers, home-directory paths, wallet private keys, mnemonics, personal webmail or machine-hostname emails in commit metadata, Claude session links) and text that discloses an exploitable vulnerability or a security decision that leaves a gap. Scores every candidate with TypeSafe for "should not be public", confirms those above a user-chosen cutoff, and has Claude judge the uncertain band. Use this whenever the user wants to audit a repo before making it public, check commits or PRs for leaks, find leaked keys/tokens/passwords, check if secrets still work, look for personal data or IBANs in git history, or asks "did we leak anything", "is this repo safe to open source", "scan for secrets", "gitleaks", "trufflehog" — even if they only mention one of these.
 ---
 
 # Repo leak scan
@@ -52,7 +52,7 @@ the report.
 ### 3. Run
 
 ```bash
-~/.claude/skills/repo-leak-scan/scripts/run.sh <repo> --sure <cutoff> --floor <floor>
+${CLAUDE_SKILL_DIR}/scripts/run.sh <repo> --sure <cutoff> --floor <floor>
 ```
 
 The last line printed is the workdir (a 0700 temp dir, outside the repo so a
@@ -70,7 +70,7 @@ requests/hour). For a private repo or a 403, the user can export
   model that answered (e.g. `jev-1.13.0`). Pass `--require-typesafe` when the
   user wants a guarantee: the run then stops instead of skipping scoring.
   Go to step 5.
-- **No key, but the `mcp__system1__fast_verify` tool is available** → `run.sh`
+- **No key, but the system1 MCP's `fast_verify` tool is available (`mcp__system1__fast_verify`, or `mcp__plugin_ai-harness_system1__fast_verify` from the ai-harness plugin)** → `run.sh`
   wrote `<workdir>/to_score.jsonl`. For each line call `fast_verify` with its
   `statement`, `evidence`, `yes_means`, `no_means`; collect
   `{id: probability}` into `<workdir>/scores.json` (write it as you go, it is
@@ -133,6 +133,7 @@ allowlist in a public repo also documents what you chose not to worry about.
 ## Files
 
 - `scripts/run.sh` — the whole pipeline
+- `scripts/precommit.py` — git pre-commit gate: the same detectors over the staged diff only (no history, PRs or scoring), plus the identity the commit will use (blocks an unset `user.email`, hostname or webmail address); `--commit-msg FILE` checks the message (commit-msg hook: Claude session links, keys); `--range BASE...HEAD` also checks the range's messages and author/committer emails. The global hooks in `~/.config/git/hooks/dispatch` run it on pre-commit and commit-msg
 - `scripts/install-tools.sh` — fetch + checksum-verify gitleaks and trufflehog
 - `scripts/fetch_pr_text.py` — PR/issue titles, bodies, comments, review comments
 - `scripts/scan_private.py` — private data + disclosure candidates

@@ -1,20 +1,26 @@
 #!/usr/bin/env bash
 # GDPR lead finder: grep-based, over-reports on purpose. Hits are leads to read, not findings.
 # Usage: pii_scan.sh <repo-root> [file ...]   (files restrict the scan, e.g. a diff's changed files)
+# PII_SCAN_EXCLUDE_DIRS="a b": extra dir names to skip, e.g. ones the project forbids agents to read.
 set -uo pipefail
 
 ROOT="${1:-.}"; shift || true
 FILES=("$@")
 MAX="${PII_SCAN_MAX:-40}"   # max hits shown per section
 
+# .claude/.worktrees hold whole repo copies that would fill every section before the real code.
 EXCL=(--exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist --exclude-dir=build
       --exclude-dir=coverage --exclude-dir=.toolchain --exclude-dir=vendor --exclude-dir=.next
       --exclude-dir=test --exclude-dir=tests --exclude-dir=__tests__ --exclude-dir=artifacts
-      --exclude-dir=cache --exclude-dir=typechain-types --exclude="*.min.js" --exclude="*.map"
-      --exclude="*.test.*" --exclude="*.spec.*" --exclude="*.lock" --exclude="package-lock.json")
+      --exclude-dir=typechain-types --exclude-dir=.claude --exclude-dir=.worktrees
+      --exclude-dir=.private --exclude="*.min.js" --exclude="*.map" --exclude="*.test.*"
+      --exclude="*.spec.*" --exclude="*-test.*" --exclude="*_test.*" --exclude="*.lock"
+      --exclude="package-lock.json" --exclude=".env*")
+for d in ${PII_SCAN_EXCLUDE_DIRS:-}; do EXCL+=(--exclude-dir="$d"); done
 INC=(--include="*.ts" --include="*.tsx" --include="*.js" --include="*.mjs" --include="*.cjs"
      --include="*.jsx" --include="*.py" --include="*.go" --include="*.rb" --include="*.php"
-     --include="*.html" --include="*.vue" --include="*.svelte")
+     --include="*.html" --include="*.vue" --include="*.svelte" --include="*.css"
+     --include="*.yml" --include="*.yaml" --include="*.toml")
 
 scan() { # scan <title> <regex> [extra grep flags]
   local title="$1" re="$2"; shift 2
@@ -23,7 +29,8 @@ scan() { # scan <title> <regex> [extra grep flags]
   if [ ${#FILES[@]} -gt 0 ]; then
     out=$(grep -HnIE "$@" "$re" "${FILES[@]}" 2>/dev/null)
   else
-    out=$(grep -rnIE "${EXCL[@]}" "${INC[@]}" "$@" "$re" "$ROOT" 2>/dev/null)
+    # BSD grep: last matching file pattern wins, so excludes must follow includes.
+    out=$(grep -rnIE "${INC[@]}" "${EXCL[@]}" "$@" "$re" "$ROOT" 2>/dev/null)
   fi
   if [ -z "$out" ]; then echo "(none)"; return; fi
   local n; n=$(printf '%s\n' "$out" | wc -l | tr -d ' ')
@@ -46,8 +53,8 @@ scan "5. Trackers / analytics / error reporting" \
   '(@sentry/|sentry\.io|posthog|mixpanel|segment\.(io|com)|amplitude\.com|@amplitude|google-analytics|googletagmanager|gtag\(|plausible\.io|hotjar|fullstory|datadoghq|dd-trace|newrelic|logrocket|clarity\.ms|widget\.intercom)' -i
 scan "6. IP address / device fingerprint handling" \
   '(req\.ips?\b|x-forwarded-for|remoteAddress|cf-connecting-ip|headers\[.user-agent.\]|get\(.user-agent.\)|navigator\.userAgent|FingerprintJS|canvas\.toDataURL)' -i
-scan "7. External scripts, fonts, iframes in HTML" \
-  '<(script|link|iframe|img)[^>]+(src|href)="https?://' -i
+scan "7. External scripts, fonts, iframes (each sends the visitor's IP)" \
+  '(<(script|link|iframe|img)[^>]+(src|href)=["'"'"']?https?://|@import\s+url\(["'"'"']?https?://|fonts\.(googleapis|gstatic)\.com)' -i
 scan "8. Delete / erase / export routes" \
   '((router|app|server|fastify)\.delete\(|@Delete\(|method:\s*["'"'"']DELETE|/export|\berase|anonymi[sz]e|purge|retention)' -i
 scan "9. Encryption at rest" \
@@ -57,9 +64,10 @@ echo; echo "## 10. Outbound hosts (unique, from source)"
 if [ ${#FILES[@]} -gt 0 ]; then
   hosts=$(grep -ohIE 'https?://[A-Za-z0-9.-]+\.[A-Za-z]{2,}' "${FILES[@]}" 2>/dev/null)
 else
-  hosts=$(grep -rohIE "${EXCL[@]}" "${INC[@]}" 'https?://[A-Za-z0-9.-]+\.[A-Za-z]{2,}' "$ROOT" 2>/dev/null)
+  hosts=$(grep -rohIE "${INC[@]}" "${EXCL[@]}"'https?://[A-Za-z0-9.-]+\.[A-Za-z]{2,}' "$ROOT" 2>/dev/null)
 fi
-printf '%s\n' "$hosts" | sed -E 's#https?://##' | grep -vE '^(localhost|127\.|0\.0\.0\.0|example\.(com|org)|www\.w3\.org|schemas\.|json-schema\.org)' \
+# Reserved test names (RFC 2606/6761) are fixtures, never real recipients.
+printf '%s\n' "$hosts" | sed -E 's#https?://##' | grep -vE '^(localhost|127\.|0\.0\.0\.0|example\.(com|org)|www\.w3\.org|schemas\.|json-schema\.org)|\.(example|test|invalid|localhost)$' \
   | sort | uniq -c | sort -rn | head -n 60
 echo
 echo "Next: read each lead in context, then run the four sweeps in references/sweep-prompts.md."

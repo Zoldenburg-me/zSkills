@@ -2,7 +2,7 @@
 name: gdpr-compliance
 description: Audit a codebase for GDPR / DSGVO compliance and produce an Art. 30 data map — every place the app collects, stores, logs or sends personal data, who receives it, legal basis, retention, data-subject-rights coverage, and a ranked gap list with fixes. Also reviews a diff or PR for new personal-data exposure. Use whenever the user mentions GDPR, DSGVO, data protection, privacy policy / Datenschutzerklärung, Impressum, AVV / DPA, processors, data map, record of processing, right to erasure / export, retention, cookies / TDDDG, or asks "are we compliant", "what personal data do we store", "map our user data" — even if they only name one of these.
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # GDPR compliance
@@ -36,7 +36,8 @@ Pick from the request; default is `audit`.
    `bash ${CLAUDE_SKILL_DIR}/scripts/pii_scan.sh <repo-root>`.
    It lists leak vectors (PII in logs, browser storage, PII in URLs, outbound
    hosts, cookies, trackers, IP handling, delete routes, external scripts).
-   Hits are leads, not findings.
+   Hits are leads, not findings. If the project's agent notes forbid reading
+   some directories, pass them: `PII_SCAN_EXCLUDE_DIRS="data backups"`.
 3. **Parallel sweeps.** Launch the four read-only Explore agents in
    `references/sweep-prompts.md` in ONE message (accounts & auth; partners &
    third parties; business / invoicing / bookkeeping data; infra, logs,
@@ -111,5 +112,3 @@ Pick from the request; default is `audit`.
 
 - `security-review` — auth, secrets, input handling (GDPR Art. 32 overlaps).
 - `repo-leak-scan` — personal data or secrets already pushed to git history.
-- `healthcare-phi-compliance` / `hipaa-compliance` — health data (Art. 9
-  special category) and US overlay.
