@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 CONF = os.path.expanduser(os.environ.get("AGENT_TRACKER_HOME", "~/.config/agent-tracker"))
@@ -40,12 +41,18 @@ def whoami(url, token):
         sys.exit(f"Can't reach {url}: {e}")
 
 
+def url_ok(url):
+    """https anywhere; plain http only to this machine, since the token goes in the header."""
+    u = urllib.parse.urlsplit(url)
+    return u.scheme == "https" or (u.scheme == "http" and u.hostname in ("localhost", "127.0.0.1", "::1"))
+
+
 def add(name, url):
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,30}", name):
         sys.exit("Name: lowercase letters, digits and dashes, up to 31 characters.")
     url = url.strip().rstrip("/")
-    if not url.startswith("https://") and not url.startswith("http://localhost"):
-        sys.exit("The board URL must start with https:// (or http://localhost for a local board).")
+    if not url_ok(url):
+        sys.exit("The board URL must start with https:// (or http://localhost, 127.0.0.1 or [::1] for a local board).")
     for _ in range(3):
         token = getpass.getpass(f"Token for {url} (input hidden): ")
         code = whoami(url, token)

@@ -48,13 +48,15 @@ def mask(kind, v):
 def staged_added_lines(repo, rng=None):
     """Yield (file, line) for every added line in the staged diff, or in RANGE."""
     which = [rng] if rng else ["--cached"]
-    diff = subprocess.run(["git", "-C", repo, "diff", *which, "-U0", "--no-color",
-                           "--no-ext-diff", "--diff-filter=ACMR"],
+    # fixed prefixes and unquoted paths, whatever diff.mnemonicPrefix/noprefix/core.quotepath say
+    diff = subprocess.run(["git", "-C", repo, "-c", "core.quotepath=off", "diff", *which, "-U0",
+                           "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/",
+                           "--diff-filter=ACMR"],
                           capture_output=True, text=True, errors="replace", check=True).stdout
     f = None
     for line in diff.splitlines():
         if line.startswith("+++ "):
-            f = line[6:] if line.startswith("+++ b/") else None
+            f = line[6:].removesuffix("\t") if line.startswith("+++ b/") else None
         elif f and line.startswith("+") and not sp.DEFAULT_SKIP_PATHS.search(f):
             yield f, line[1:][:sp.MAX_LINE]
 
@@ -68,7 +70,9 @@ def run_gitleaks(repo, rng=None):
     scope = ["--log-opts", rng.replace("...", "..")] if rng else ["--pre-commit", "--staged"]
     r = subprocess.run([exe, "git", repo, *scope, "--redact", "--no-banner", "-v",
                         "--log-level", "warn", "--exit-code", "1"])
-    return 1 if r.returncode == 1 else 0
+    if r.returncode > 1:
+        print(f"leak-scan: gitleaks failed (exit {r.returncode}), secret rules NOT checked", file=sys.stderr)
+    return 1 if r.returncode else 0
 
 
 def git(repo, *args):
