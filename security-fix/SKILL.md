@@ -3,6 +3,8 @@ name: security-fix
 description: Work the findings of a finished security-audit run one at a time, one session per finding. `queue` turns the run's findings.json into a fix queue (FIX-PROGRESS.md) and offers a one-click task chip for the first finding; `next` (run in that new session) claims the row, proves the bug with a failing test, makes the smallest fix that enforces the invariant at the last trusted decision point, has an independent checker judge it, opens a PR, and offers the chip for the next finding. Use after a security-audit run completes, when the user says "fix the findings", "start the fix queue", "next finding", /security-fix, or opens a session from a security-fix chip.
 ---
 
+`SKILL_DIR` = `${CLAUDE_SKILL_DIR}` (this skill's folder). NEXT.md and CHECKER.md use it; pass the absolute path on to any session or subagent you hand them to.
+
 # Security fix
 
 The fixing half of `security-audit`. The audit stays read-only and ends by pointing here.

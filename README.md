@@ -56,7 +56,7 @@ In Codex, use `$skill-name` to invoke one, or let it pick from the
 description. If your project already has a `.agents/skills/` folder, copy the
 skills in instead of linking the folder.
 
-OpenCode also gets the 15 agents and 3 of the 4 commands, in
+OpenCode also gets the 17 agents and 3 of the 4 commands, in
 `.opencode/agents/` and `.opencode/commands/`:
 
 ```bash
@@ -91,7 +91,7 @@ Codex has no file format here for agents or commands; `AGENTS.md` (see
 | [skill-router](skill-router/SKILL.md) | Picks the skills that fit the current task and runs them. Catalogs every reachable skill (loaded listing, `~/.claude/skills`, commands, plugins, the uninstalled ECC library), shortlists with BM25, then scores each shortlisted skill with two TypeSafe Jev Nouls: does it serve the task, and does the repo have what it works on. Runs the top picks, hands the uncertain band to the agent, and shows the plan before running anything. |
 | [gdpr-compliance](gdpr-compliance/SKILL.md) | Audits a codebase for GDPR / DSGVO and produces an Art. 30 data map: every place the app collects, stores, logs or sends personal data, the recipients, controller vs processor role, proposed legal basis and retention, data-subject-rights coverage, and a ranked gap list (Blocker / Fix / Tidy) with fixes and questions for counsel. Also reviews a diff for new personal-data exposure and drafts an Art. 13 notice. German specifics included (DDG Impressum, TDDDG, BDSG DPO, §147 AO retention). Engineering inventory, not legal advice. |
 | [security-fix](security-fix/SKILL.md) | Works the findings of a finished security-audit run one per session. `queue` turns `findings.json` into a fix queue (`FIX-PROGRESS.md`) and marks findings that need a product decision; `next` claims one row, writes the reproduction test, makes the smallest fix at the last trusted decision point, and opens a PR. A deterministic judge (test red on the merge base, green on the fix, no deleted or weakened tests) and an independent checker subagent with a mutation check decide whether the fix stands. The fixer never grades itself and never merges; the owner's merge marks the row fixed. Each session offers a one-click chip for the next finding. |
-| [session-loop](session-loop/SKILL.md) | Runs board tasks across Claude Code sessions. The lead reads the agent-tracker board by priority, starts one worker session per task and keeps the board current; it never codes. Each worker fixes and tests, runs `/skill-router` and `/agent-router` before every commit, opens the PR (and a docs PR for user-visible changes), runs `/git-workflow` once, waits for Devin to pass on the final head SHA, merges, proves the merge on `origin/main` and reports in one message. Hard limits in `sessions-rules.md`. |
+| [session-loop](session-loop/SKILL.md) | Runs board tasks across Claude Code sessions in three roles. The lead (the board's master agent) creates and assigns tasks, starts one worker session per task and one read-only reviewer per PR, and adds milestone audit tasks; it never codes. Each worker claims and logs its own task, runs the repo check and `/leak-check` before each commit, opens the PR and sets the task to `review`. The reviewer runs `/skill-router` and `/agent-router` on the PR head and leaves one `clear` or `changes needed` comment. Merge needs the reviewer's `clear` and Devin `success` on the final head SHA. Hard limits in `sessions-rules.md`. |
 
 ## Agents
 
@@ -103,7 +103,7 @@ Codex has no file format here for agents or commands; `AGENTS.md` (see
 
 | Plugin | What it does |
 |---|---|
-| [ai-harness](ai-harness/README.md) | Claude Code plugin for building AI apps: evals first, smallest complete change, reviewed and verified before merge. Bundles about 30 skills (from ECC, Ponytail, andrej-karpathy-skills and this repo), 15 agents, 4 commands, an `AGENTS.md` template with `/ai-harness:harness-init`, and a separate `ai-harness-web3` add-on. Third-party licences in `NOTICE.md`. |
+| [ai-harness](ai-harness/README.md) | Claude Code plugin for building AI apps: evals first, smallest complete change, reviewed and verified before merge. Bundles about 30 skills (from ECC, Ponytail, andrej-karpathy-skills and this repo), 17 agents, 4 commands, an `AGENTS.md` template with `/ai-harness:harness-init`, and add-ons: `ai-harness-web3`, `ai-harness-board` (the hosted agent-tracker board) and nine Trail of Bits security plugins (CC BY-SA 4.0, in `security/`). Third-party licences in `NOTICE.md`. |
 
 ## Multi-agent compatibility
 
@@ -172,10 +172,10 @@ on Windows.
 
 ### session-loop requirements
 
-- The `agent-tracker` MCP (the board), the Claude desktop app's session tools
+- The `agent-tracker` MCP (the board; `ai-harness-board` installs it), the Claude desktop app's session tools
   (`start_session`, `SendMessage`), a GitHub repo with Devin review, and an
   authenticated `gh` CLI
-- `skill-router`, `agent-router` and `git-workflow` for the worker loop;
+- `skill-router`, `agent-router` and `git-workflow` for the reviewer and worker;
   `agent-router` and `git-workflow` ship inside `ai-harness`
 
 ### ai-harness requirements

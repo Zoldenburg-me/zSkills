@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "agent-tracker": {
+      "command": "python3",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/server/launch.py"],
+      "env": {
+        "AGENT_DASH_URL": "${user_config.board_url}",
+        "AGENT_DASH_TOKEN": "${user_config.board_token}"
+      }
+    }
+  }
+}

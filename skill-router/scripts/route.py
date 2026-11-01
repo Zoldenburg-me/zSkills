@@ -4,12 +4,12 @@ can reach, shortlist it with BM25 against the task and the repo, then score
 the shortlist with TypeSafe (Jev) and bucket it.
 
 Subcommands
-  run --task TEXT [--listing FILE] [--workdir DIR] [--shortlist 40]
+  run --task TEXT [--listing FILE|-] [--workdir DIR] [--shortlist N]
       [--sure 0.6] [--floor 0.25] [--top 3] [--no-score]
       Writes WORKDIR/context.json, catalog.json, shortlist.json, then scores
-      via the TypeSafe HTTP API ($TYPESAFE_API_KEY, or the repo's .env) into
+      via the TypeSafe HTTP API ($TYPESAFE_API_KEY, ~/.system1/config.json, or .env) into
       scores.json and prints the report. Without a key it writes
-      to_score.jsonl for the system1 fast_verify MCP tool instead.
+      to_score.jsonl (task fit only, 12 skills) for the system1 fast_verify MCP tool.
   report [--workdir DIR] [--sure 0.6] [--floor 0.25] [--top 3]
       Prints the report from an existing scores.json (after MCP scoring).
 
@@ -21,7 +21,7 @@ does not use still ranks low.
 Only the task text, file-extension counts, dependency names, changed file
 paths and recent commit subjects go to TypeSafe. No file contents, no diffs.
 """
-import argparse, json, math, os, re, subprocess, sys, time, urllib.error, urllib.request
+import argparse, hashlib, json, math, os, re, subprocess, sys, time, urllib.error, urllib.request
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
@@ -33,11 +33,21 @@ COMMANDS_DIR = os.path.join(HOME, ".claude", "commands")
 PLUGIN_CACHE = os.path.join(HOME, ".claude", "plugins", "cache")
 LIBRARY_DIR = os.environ.get("SKILL_ROUTER_LIBRARY",
                              os.path.join(HOME, "Documents", "everything-claude-code", "skills"))
-DEFAULT_WORKDIR = os.path.join(HOME, ".cache", "skill-router", "last")
 SELF = "skill-router"
 BATCH = 10            # skills per request; two questions each
+SHORTLIST_API, SHORTLIST_MCP = 40, 12   # MCP scoring is one tool call per question
 THREADS = 4
 TASK_WEIGHT, REPO_WEIGHT = 1.0, 0.15
+# Run on every code change (PR, diff, commit, push) whatever Jev says: a missed
+# security review or leak costs more than a needless one.
+ALWAYS_ON_CHANGE = [n.strip() for n in os.environ.get(
+    "SKILL_ROUTER_ALWAYS", "security-review,tidy-context,leak-check").split(",") if n.strip()]
+# Always shortlisted, so Jev scores them on every run; unlike the baseline they
+# still have to clear the cutoff to run.
+ALWAYS_SCORE = [n.strip() for n in os.environ.get(
+    "SKILL_ROUTER_SCORE", "gdpr-compliance").split(",") if n.strip()]
+CHANGE_RE = re.compile(r"\b(pr|pull request|diff|commits?|push|merge|branch|uncommitted|staged|changes)\b"
+                       r"|/pull/\d+|#\d+", re.I)
 EXT_WORDS = {".ts": "typescript", ".tsx": "typescript react", ".js": "javascript", ".jsx": "javascript react",
              ".py": "python", ".go": "golang go", ".rs": "rust", ".sol": "solidity", ".java": "java",
              ".kt": "kotlin", ".swift": "swift", ".rb": "ruby rails", ".php": "php laravel", ".vue": "vue",
@@ -89,7 +99,7 @@ def build_catalog(listing_path):
     cat = {}
     # 1. What the agent's own skill listing says is invokable right now (authoritative).
     if listing_path:
-        for line in open(listing_path, encoding="utf-8"):
+        for line in (sys.stdin if listing_path == "-" else open(listing_path, encoding="utf-8")):
             m = re.match(r"^\s*-\s*([\w:.\-/]+)\s*(?::\s*(.*))?$", line.rstrip())
             if m:
                 add(cat, m.group(1), (m.group(2) or "").strip(), "loaded", f"Skill({m.group(1)})")
@@ -167,7 +177,15 @@ def tokens(text):
     return [t for t in re.findall(r"[a-z0-9][a-z0-9+#.-]{1,}", text.lower().replace("_", "-")) if t not in STOP]
 
 
-def shortlist(cat, ctx, size):
+def resolve(names, cat):
+    """Map bare names to the catalog key, which may carry a plugin namespace (ai-harness:security-review)."""
+    def pick(n):
+        found = sorted((k for k in cat if k.endswith(":" + n)), key=lambda k: (not k.startswith("ai-harness:"), k))
+        return n if n in cat or not found else found[0]
+    return [pick(n) for n in names]
+
+
+def shortlist(cat, ctx, size, forced=()):
     # The task decides relevance; repo signals only break ties (repo fit is Jev's second question).
     langs = " ".join(EXT_WORDS.get(e, "") for e in ctx["repo"]["file_types"])
     q = Counter({t: TASK_WEIGHT * n for t, n in Counter(tokens(ctx["task"])).items()})
@@ -186,6 +204,7 @@ def shortlist(cat, ctx, size):
                 s += qn * idf * tf[t] * 2.2 / (tf[t] + 1.2 * (0.25 + 0.75 * len(d) / avg))
         scores[n] = s
     named = [n for n in cat if re.search(r"(?<![\w-])" + re.escape(n) + r"(?![\w-])", ctx["task"], re.I)]
+    named += [n for n in forced if n in cat and n not in named]
     ranked = [n for n in sorted(cat, key=lambda n: -scores[n]) if n not in named and scores[n] > 0]
     picked = named + ranked[:max(size - len(named), 0)]
     return [dict(cat[n], bm25=round(scores[n], 2)) for n in picked]
@@ -212,14 +231,31 @@ def api_key():
     key = os.environ.get("TYPESAFE_API_KEY")
     if key:
         return key
+    # The system1 MCP server's own store: the same key the fast_verify tool uses.
+    cfg = os.path.join(os.environ.get("SYSTEM1_CONFIG_DIR") or os.path.join(HOME, ".system1"), "config.json")
     try:
-        for line in open(".env"):
-            m = re.match(r"^\s*(?:export\s+)?TYPESAFE_API_KEY\s*=\s*['\"]?([^'\"\s#]+)", line)
-            if m:
-                return m.group(1)
-    except OSError:
-        pass
+        key = (json.load(open(cfg)).get("api_key") or "").strip()
+    except (OSError, ValueError, AttributeError):
+        key = ""
+    if key:
+        return key
+    common = sh("git", "rev-parse", "--path-format=absolute", "--git-common-dir").strip()
+    for env in [".env"] + ([os.path.join(os.path.dirname(common), ".env")] if common else []):
+        try:
+            for line in open(env):
+                m = re.match(r"^\s*(?:export\s+)?TYPESAFE_API_KEY\s*=\s*['\"]?([^'\"\s#]+)", line)
+                if m:
+                    return m.group(1)
+        except OSError:
+            pass
     return None
+
+
+def default_workdir(tool=SELF):
+    # One workdir per checkout: parallel sessions in different worktrees must not overwrite each other's scores.
+    top = sh("git", "rev-parse", "--show-toplevel").strip() or os.getcwd()
+    return os.path.join(HOME, ".cache", tool,
+                        os.path.basename(top) + "-" + hashlib.sha1(top.encode()).hexdigest()[:6])
 
 
 def post(body, key):
@@ -278,18 +314,20 @@ def score(workdir, ctx, short, key):
     print(f"scored {len(short)} skills with TypeSafe {', '.join(sorted(models))} ({tok} input tokens)", file=sys.stderr)
 
 
-def write_mcp_batch(workdir, ctx, short):
+def write_mcp_batch(workdir, ctx, short, baseline):
     path = os.path.join(workdir, "to_score.jsonl")
+    short = [s for s in short if s["name"] not in baseline]   # the baseline runs regardless; don't spend calls on it
     with open(path, "w") as fh:
         for s in short:
+            # Task fit only: one tool call per question, and the shortlist already leans on the repo's stack.
             ev = {"task": ctx["task"], "repo": ctx["repo"], "skill": {"name": s["name"], "description": s["description"]}}
-            for kind, q in (("task", Q_TASK), ("repo", Q_REPO)):
-                fh.write(json.dumps({"id": f"{s['name']}::{kind}",
-                                     "statement": q["instructions"].format(id=sid(s["name"])),
-                                     "evidence": ev, "yes_means": q["true"], "no_means": q["false"]}) + "\n")
-    print(f"no TYPESAFE_API_KEY: {2 * len(short)} questions -> {path}\n"
-          f"score them with mcp__system1__fast_verify and write "
-          f'{{"<name>": {{"task": p, "repo": p}}}} to {os.path.join(workdir, "scores.json")}, then run `report`.',
+            fh.write(json.dumps({"id": s["name"],
+                                 "statement": f"Would running the skill `{s['name']}` now materially help the agent "
+                                              f"with `task`?",
+                                 "evidence": ev, "yes_means": Q_TASK["true"], "no_means": Q_TASK["false"]}) + "\n")
+    print(f"no TYPESAFE_API_KEY: {len(short)} questions -> {path}\n"
+          f"score EVERY line with mcp__system1__fast_verify (or mcp__plugin_ai-harness_system1__fast_verify when the MCP comes from the ai-harness plugin) (statement, evidence, yes_means, no_means as given) and "
+          f'write {{"<id>": {{"task": probability}}}} to {os.path.join(workdir, "scores.json")}, then run `report`.',
           file=sys.stderr)
 
 
@@ -297,32 +335,49 @@ def write_mcp_batch(workdir, ctx, short):
 
 def report(workdir, sure, floor, top):
     short = json.load(open(os.path.join(workdir, "shortlist.json")))
+    bp = os.path.join(workdir, "baseline.json")
+    baseline = json.load(open(bp)) if os.path.exists(bp) else []
     sp = os.path.join(workdir, "scores.json")
     scores = json.load(open(sp)) if os.path.exists(sp) else {}
+    names = {s["name"] for s in short}
+    stray = sorted(set(scores) - names)
+    if stray:
+        print(f"warning: scores.json has names not on the shortlist (ignored): {', '.join(stray)}", file=sys.stderr)
     rows = []
     for s in short:
         sc = scores.get(s["name"])
-        p = None if sc is None else sc["task"] * sc["repo"]
-        rows.append(dict(s, p=p, task=sc and sc["task"], repo=sc and sc["repo"]))
+        repo = None if sc is None else sc.get("repo")
+        p = None if sc is None else sc["task"] * (1.0 if repo is None else repo)
+        rows.append(dict(s, p=p, task=sc and sc["task"], repo=repo))
     rows.sort(key=lambda r: (r["p"] is None, -(r["p"] or 0), -r["bm25"]))
+    base = [r for r in rows if r["name"] in baseline]
+    rows = [r for r in rows if r["name"] not in baseline]
     scored = [r for r in rows if r["p"] is not None]
     run = [r for r in scored if r["p"] >= sure][:top]
     band = [r for r in scored if r["p"] >= floor and r not in run]
     unscored = [r for r in rows if r["p"] is None]
 
     def line(r):
-        p = "—" if r["p"] is None else f"{r['p']:.2f} (task {r['task']:.2f} · repo {r['repo']:.2f})"
+        repo = "" if r["repo"] is None else f" · repo {r['repo']:.2f}"
+        p = "—" if r["p"] is None else f"{r['p']:.2f} (task {r['task']:.2f}{repo})"
         return f"| {p} | `{r['name']}` | {r['source']} | {r['how']} | {r['description'][:110].replace('|', '/')} |"
 
     head = "| p | skill | source | how to run | what it does |\n|---|---|---|---|---|"
-    out = [f"## Run (p ≥ {sure}, at most {top})", head] + [line(r) for r in run]
+    out = []
+    if baseline:
+        missing = [n for n in baseline if n not in {r["name"] for r in base}]
+        out += ["## Always run for a change (baseline, not scored against the cutoff)", head]
+        out += [line(r) for r in base] + [f"| — | `{n}` | missing | not installed | — |" for n in missing]
+        out.append("")
+    out += [f"## Run (p ≥ {sure}, at most {top})", head] + [line(r) for r in run]
     out += [f"\n## Judge yourself (p ≥ {floor}, not in Run)", head] + [line(r) for r in band]
     if unscored:
-        out += ["\n## Unscored (BM25 order)", head] + [line(r) for r in unscored[:15]]
+        out += [f"\n## Unscored (BM25 order) — {len(unscored)} of {len(rows)} not scored; the report is incomplete",
+                head] + [line(r) for r in unscored[:15]]
     out.append(f"\n{len(rows)} shortlisted; {len(scored) - len(run) - len(band)} below {floor} dropped.")
     text = "\n".join(out)
     open(os.path.join(workdir, "report.md"), "w").write(text + "\n")
-    json.dump([r["name"] for r in run], open(os.path.join(workdir, "run.json"), "w"))
+    json.dump([r["name"] for r in base] + [r["name"] for r in run], open(os.path.join(workdir, "run.json"), "w"))
     print(text)
 
 
@@ -333,16 +388,20 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run")
     r.add_argument("--task", required=True)
-    r.add_argument("--listing", help="file with the agent's skill listing, one '- name: description' per line")
-    r.add_argument("--shortlist", type=int, default=40)
+    r.add_argument("--listing", help="file with the agent's skill listing, one '- name: description' per line; - for stdin")
+    r.add_argument("--shortlist", type=int, help=f"default {SHORTLIST_API} with an API key, {SHORTLIST_MCP} without")
     r.add_argument("--no-score", action="store_true")
+    r.add_argument("--change", dest="change", action="store_true", default=None,
+                   help="treat the task as a code change: add the baseline skills (auto-detected from the task text)")
+    r.add_argument("--no-change", dest="change", action="store_false")
     rep = sub.add_parser("report")
     for p in (r, rep):
-        p.add_argument("--workdir", default=DEFAULT_WORKDIR)
+        p.add_argument("--workdir", help="default: one per checkout under ~/.cache/skill-router")
         p.add_argument("--sure", type=float, default=0.6)
         p.add_argument("--floor", type=float, default=0.25)
         p.add_argument("--top", type=int, default=3)
     a = ap.parse_args()
+    a.workdir = a.workdir or default_workdir()
     os.makedirs(a.workdir, exist_ok=True)
     if a.cmd == "report":
         return report(a.workdir, a.sure, a.floor, a.top)
@@ -351,8 +410,12 @@ def main():
         sys.exit("--task is empty: describe what the user is doing right now")
     cat = build_catalog(a.listing)
     ctx = repo_context(task)
-    short = shortlist(cat, ctx, a.shortlist)
-    for name, obj in (("context", ctx), ("catalog", cat), ("shortlist", short)):
+    change = a.change if a.change is not None else bool(CHANGE_RE.search(task))
+    baseline = resolve(ALWAYS_ON_CHANGE, cat) if change else []
+    key = None if a.no_score else api_key()
+    size = (a.shortlist or (SHORTLIST_API if key or a.no_score else SHORTLIST_MCP)) + len(baseline)
+    short = shortlist(cat, ctx, size, baseline + [n for n in resolve(ALWAYS_SCORE, cat) if n not in baseline])
+    for name, obj in (("context", ctx), ("catalog", cat), ("shortlist", short), ("baseline", baseline)):
         json.dump(obj, open(os.path.join(a.workdir, f"{name}.json"), "w"), indent=1)
     by_src = Counter(s["source"] for s in cat.values())
     print(f"catalog {len(cat)} skills ({', '.join(f'{k} {v}' for k, v in by_src.most_common())}); "
@@ -360,12 +423,11 @@ def main():
     sp = os.path.join(a.workdir, "scores.json")
     if os.path.exists(sp):
         os.remove(sp)   # scores belong to one task; never mix them with the previous run
-    if not a.no_score:
-        key = api_key()
-        if key:
-            score(a.workdir, ctx, short, key)
-        else:
-            write_mcp_batch(a.workdir, ctx, short)
+    print(f"workdir {a.workdir}", file=sys.stderr)
+    if key:
+        score(a.workdir, ctx, short, key)
+    elif not a.no_score:
+        write_mcp_batch(a.workdir, ctx, short, baseline)
     report(a.workdir, a.sure, a.floor, a.top)
 
 

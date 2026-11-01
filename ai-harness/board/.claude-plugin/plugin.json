@@ -1,0 +1,21 @@
+{
+  "name": "ai-harness-board",
+  "version": "0.1.0",
+  "description": "Board add-on: the agent-tracker MCP server and token-usage hooks for a hosted dashboard-ai board, plus extra boards on demand.",
+  "author": {
+    "name": "Tony Thomas"
+  },
+  "userConfig": {
+    "board_url": {
+      "type": "string",
+      "title": "Board URL",
+      "description": "The hosted dashboard-ai board, e.g. https://your-board.vercel.app (no trailing /mcp)."
+    },
+    "board_token": {
+      "type": "string",
+      "title": "Board token",
+      "sensitive": true,
+      "description": "AGENT_DASH_TOKEN, or your own per-agent or team token. Kept in the system keychain."
+    }
+  }
+}

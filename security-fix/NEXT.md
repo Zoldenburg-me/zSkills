@@ -1,7 +1,7 @@
 # `next`: fix one finding, then stop
 
-`Q` = `python3 ~/.claude/skills/security-fix/scripts/fixqueue.py`,
-`J` = `python3 ~/.claude/skills/security-fix/scripts/judge.py`,
+`Q` = `python3 $SKILL_DIR/scripts/fixqueue.py`,
+`J` = `python3 $SKILL_DIR/scripts/judge.py`,
 `RUN` = the run dir, `CFG` = `RUN/fix-config.json`, `<repo>` = `CFG.repo`, `<base>` = `CFG.base`.
 Work autonomously. The only questions to the owner are in step 1; after that, a question that comes
 up becomes a row status with the question in the note, never a wait. Every exit path updates the

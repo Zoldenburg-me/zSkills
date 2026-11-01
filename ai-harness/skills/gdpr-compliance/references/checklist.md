@@ -50,7 +50,8 @@ them quickly; verify periods and names against current law before relying.
 - **Retention (business records)**: books, annual accounts 10 years
   (§147 AO, §257 HGB); Buchungsbelege and invoices 8 years after the
   Bürokratieentlastungsgesetz IV (§147 AO, §14b UStG, from 2025); business
-  letters 6 years. Period starts at the end of the calendar year. Confirm.
+  letters 6 years. Period starts at the end of the calendar year. BaFin-
+  supervised firms get the 8-year period one year later. Confirm.
 - **Supervisory authority**: the Land authority where the company sits
   (e.g. BayLDA for private companies in Bavaria).
 

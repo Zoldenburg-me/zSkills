@@ -1,0 +1,27 @@
+{
+  "description": "Report each folder's token usage to the board (Stop) and mark the agent idle (SessionEnd). Runs outside the model; never fails a session.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -n \"$CLAUDE_PLUGIN_OPTION_BOARD_URL\" ] && AGENT_DASH_URL=\"$CLAUDE_PLUGIN_OPTION_BOARD_URL\" AGENT_DASH_TOKEN=\"$CLAUDE_PLUGIN_OPTION_BOARD_TOKEN\" python3 \"$CLAUDE_PLUGIN_ROOT/server/hooks/claude_hook.py\" || true",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -n \"$CLAUDE_PLUGIN_OPTION_BOARD_URL\" ] && AGENT_DASH_URL=\"$CLAUDE_PLUGIN_OPTION_BOARD_URL\" AGENT_DASH_TOKEN=\"$CLAUDE_PLUGIN_OPTION_BOARD_TOKEN\" python3 \"$CLAUDE_PLUGIN_ROOT/server/hooks/claude_hook.py\" || true",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

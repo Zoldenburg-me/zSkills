@@ -16,6 +16,20 @@
       "name": "ai-harness-web3",
       "source": "./web3",
       "description": "Web3 add-on: Blockscout web3-dev, on-chain review, DAO governance review and proposal writing."
-    }
+    },
+    {
+      "name": "ai-harness-board",
+      "source": "./board",
+      "description": "Board add-on: agent-tracker MCP server and token-usage hooks for a hosted dashboard-ai board; asks for the board URL and token on enable; extra boards with bin/board."
+    },
+    { "name": "rust-review", "source": "./security/rust-review", "description": "Trail of Bits (CC BY-SA 4.0): Rust security review." },
+    { "name": "spec-to-code-compliance", "source": "./security/spec-to-code-compliance", "description": "Trail of Bits (CC BY-SA 4.0): check code against its spec." },
+    { "name": "sharp-edges", "source": "./security/sharp-edges", "description": "Trail of Bits (CC BY-SA 4.0): footgun APIs and dangerous defaults." },
+    { "name": "differential-review", "source": "./security/differential-review", "description": "Trail of Bits (CC BY-SA 4.0): security review of a diff or PR." },
+    { "name": "property-based-testing", "source": "./security/property-based-testing", "description": "Trail of Bits (CC BY-SA 4.0): property-based tests." },
+    { "name": "testing-handbook-skills", "source": "./security/testing-handbook-skills", "description": "Trail of Bits (CC BY-SA 4.0): fuzzing and testing handbook skills, incl. cargo-fuzz." },
+    { "name": "audit-context-building", "source": "./security/audit-context-building", "description": "Trail of Bits (CC BY-SA 4.0): per-function audit context before hunting." },
+    { "name": "entry-point-analyzer", "source": "./security/entry-point-analyzer", "description": "Trail of Bits (CC BY-SA 4.0): state-changing entry points in smart contracts." },
+    { "name": "supply-chain-risk-auditor", "source": "./security/supply-chain-risk-auditor", "description": "Trail of Bits (CC BY-SA 4.0): dependency supply-chain risk." }
   ]
 }
