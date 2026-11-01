@@ -1,44 +1,72 @@
 #!/usr/bin/env python3
-"""Manage extra agent-tracker boards. Run it yourself in a terminal (it asks for the token
-with hidden input, so the token never goes through a chat):
+"""Manage extra agent-tracker boards for Claude Code, Codex CLI and OpenCode.
 
-  board add <name> <url>   check the token, then register MCP server agent-tracker-<name>
-  board list               the boards registered with Claude Code
-  board remove <name>      unregister agent-tracker-<name>
+  board add <name> <url> [--tool claude|codex|opencode] [--token-file PATH]
+      register MCP server agent-tracker-<name> with that tool (default claude)
+  board token <name>
+      ask for the token (hidden input), write it to the token file (mode 600), check it
+  board list [--tool ...]          the boards registered with that tool
+  board remove <name> [--tool ...] unregister agent-tracker-<name>
 
-The primary board comes from the plugin's Board URL and token. Each extra board is its own
-user-scope MCP server, so its tools show up as mcp__agent-tracker-<name>__tracker_*. The
-server code is copied to ~/.config/agent-tracker/server so it survives plugin updates; run
-`board add` again after updating the plugin to refresh it.
+--tool claude without --token-file asks for the token here and puts it in Claude Code's
+config, as before. With --token-file, and always for codex and opencode, the config only
+points at the token file (default ~/.config/agent-tracker/<name>.token) and the server reads
+it at start; run `board token <name>` yourself in a terminal to write it, so the token never
+goes through a chat or a config file.
+
+Codex: [mcp_servers.agent-tracker-<name>] in ~/.codex/config.toml ($CODEX_HOME).
+OpenCode: mcp.agent-tracker-<name> in ~/.config/opencode/opencode.json.
+Other entries in those files are kept. Tools show up as agent-tracker-<name>'s tracker_*.
+
+The primary Claude Code board comes from the plugin's Board URL and token. The server code
+is copied to ~/.config/agent-tracker/server so it survives plugin updates; run `board add`
+again after updating the plugin to refresh it.
 """
+import argparse
 import getpass
+import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
 
-CONF = os.path.expanduser(os.environ.get("AGENT_TRACKER_HOME", "~/.config/agent-tracker"))
+CONF = os.path.abspath(os.path.expanduser(os.environ.get("AGENT_TRACKER_HOME", "~/.config/agent-tracker")))
 SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "server")
 DEST = os.path.join(CONF, "server")
+LAUNCH = os.path.join(DEST, "launch.py")
+CODEX = os.path.join(os.path.expanduser(os.environ.get("CODEX_HOME", "~/.codex")), "config.toml")
+OPENCODE = os.path.join(os.path.expanduser(os.environ.get("XDG_CONFIG_HOME", "~/.config")), "opencode", "opencode.json")
+TOOLS = ("claude", "codex", "opencode")
 
 
 def claude(*args):
-    return subprocess.run(["claude", "mcp", *args], capture_output=True, text=True)
+    try:
+        return subprocess.run(["claude", "mcp", *args], capture_output=True, text=True)
+    except OSError as e:
+        sys.exit(f"Can't run claude: {e}")
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None  # a redirect would carry the Authorization header to the new host
 
 
 def whoami(url, token):
     req = urllib.request.Request(url + "/api/whoami", headers={"Authorization": f"Bearer {token}"})
     try:
-        with urllib.request.urlopen(req, timeout=15) as r:
+        with urllib.request.build_opener(NoRedirect).open(req, timeout=15) as r:
             return r.status
     except urllib.error.HTTPError as e:
         return e.code
-    except (urllib.error.URLError, ValueError) as e:
-        sys.exit(f"Can't reach {url}: {e}")
+    except ValueError:  # the message would quote the header, token included
+        sys.exit(f"Can't reach {url}: bad URL or token. Nothing changed.")
+    except OSError as e:
+        sys.exit(f"Can't reach {url}: {e}. Nothing changed.")
 
 
 def url_ok(url):
@@ -47,43 +75,271 @@ def url_ok(url):
     return u.scheme == "https" or (u.scheme == "http" and u.hostname in ("localhost", "127.0.0.1", "::1"))
 
 
-def add(name, url):
+def check_name(name):
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,30}", name):
         sys.exit("Name: lowercase letters, digits and dashes, up to 31 characters.")
+
+
+def board_file(name):
+    return os.path.join(CONF, f"{name}.board.json")
+
+
+def prompt_token(url):
+    # without a tty getpass reads stdin with echo, which would put the token into an agent's chat
+    if not sys.stdin.isatty():
+        sys.exit("Run board token yourself in a terminal.")
+    token = getpass.getpass(f"Token for {url} (input hidden): ").strip()
+    if token and not token.isprintable():
+        sys.exit("That token has control characters; nothing changed.")
+    return token
+
+
+try:
+    import tomllib
+except ImportError:  # Python < 3.11, e.g. macOS's python3
+    tomllib = None
+
+TOML_HEADER = re.compile(r"^\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*(#.*)?$")
+
+
+def toml_set(text, server, block):
+    """Drop the [mcp_servers.<server>] table (and its subtables) from text, then append block
+    unless it is None. Returns (new text, whether the table was there). Every other line stays.
+    shortcut: line-based, so a table header written inside a multi-line string would confuse it;
+    the result is re-parsed with tomllib where Python has it (3.11+)."""
+    ours = re.compile(r'mcp_servers\s*\.\s*"?%s"?(\s*\..*)?' % re.escape(server))
+    out, pending, skip, found = [], [], False, False
+    for line in text.splitlines(keepends=True):
+        m = TOML_HEADER.match(line)
+        if m:
+            skip = bool(ours.fullmatch(m.group(1)))
+            found = found or skip
+            if not skip:
+                out += pending  # comments and blank lines just above the next table belong to it
+            pending = []
+        if not skip:
+            out.append(line)
+        elif not line.strip() or line.lstrip().startswith("#"):
+            pending.append(line)
+        else:
+            pending = []
+    new = "".join(out)
+    if re.search(r"(?<![\w-])%s(?![\w-])" % re.escape(server), new):
+        raise ValueError(f"{server} is still defined in a form this script doesn't edit (dotted key or inline table); "
+                         "remove it by hand and run board add again")
+    if block:
+        new = new.rstrip("\n") + ("\n\n" if new.strip() else "") + block
+    if tomllib:
+        try:
+            tomllib.loads(new)
+        except tomllib.TOMLDecodeError as e:
+            raise ValueError(f"the result would not be valid TOML ({e})")
+    return new, found
+
+
+def codex_block(server, env):
+    envs = ", ".join(f"{k} = {json.dumps(v)}" for k, v in env.items())  # JSON strings are valid TOML strings
+    return f'[mcp_servers.{server}]\ncommand = "python3"\nargs = [{json.dumps(LAUNCH)}]\nenv = {{ {envs} }}\n'
+
+
+def mcp_servers(cfg):
+    """opencode.json's server map: "mcp", or "mcp"."servers" in a file already in the newer layout."""
+    if not isinstance(cfg, dict) or not isinstance(cfg.setdefault("mcp", {}), dict):
+        raise ValueError('expected a JSON object with an "mcp" object')
+    servers = cfg["mcp"].get("servers")
+    return servers if isinstance(servers, dict) else cfg["mcp"]
+
+
+def json_set(text, server, entry):
+    """Same as toml_set for opencode.json's "mcp" object; entry None removes it."""
+    cfg = json.loads(text) if text.strip() else {}
+    servers = mcp_servers(cfg)
+    found = servers.pop(server, None) is not None
+    if entry:
+        servers[server] = entry
+    return json.dumps(cfg, indent=2) + "\n", found
+
+
+def write_private(path, text, keep_mode=True):
+    """Write via a temp file and rename. New files get mode 600; keep_mode keeps an existing file's mode."""
+    path = os.path.realpath(path)
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    mode = 0o600
+    if keep_mode:
+        try:
+            mode = os.stat(path).st_mode & 0o777
+        except FileNotFoundError:
+            pass
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=os.path.basename(path) + ".")
+    try:
+        os.fchmod(fd, mode)
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        os.unlink(tmp)
+        raise
+
+
+def edit(tool, server, env):
+    """Set (env) or remove (env None) the server in the codex or opencode config."""
+    path = CODEX if tool == "codex" else OPENCODE
+    try:
+        try:
+            with open(path) as f:
+                text = f.read()
+        except FileNotFoundError:
+            text = ""
+        if tool == "codex":
+            new, found = toml_set(text, server, env and codex_block(server, env))
+        else:
+            new, found = json_set(text, server, env and {"type": "local", "command": ["python3", LAUNCH], "environment": env})
+    except ValueError as e:
+        sys.exit(f"Can't update {path}: {e}. Nothing changed.")
+    if env or found:
+        if tool == "codex" and text and not tomllib:
+            shutil.copy2(path, path + ".board-bak")
+            print(f"This Python has no tomllib, so the new {path} was not validated; the old one is in {path}.board-bak.")
+        write_private(path, new)
+    return path, found
+
+
+def ask_token(url):
+    for _ in range(3):
+        token = prompt_token(url)
+        code = whoami(url, token) if token else "empty"
+        if code == 200:
+            return token
+        print(f"That didn't work (HTTP {code}).")
+    sys.exit("No working token; nothing changed.")
+
+
+def add(name, url, tool, token_file):
+    check_name(name)
     url = url.strip().rstrip("/")
     if not url_ok(url):
         sys.exit("The board URL must start with https:// (or http://localhost, 127.0.0.1 or [::1] for a local board).")
-    for _ in range(3):
-        token = getpass.getpass(f"Token for {url} (input hidden): ")
-        code = whoami(url, token)
-        if code == 200:
-            break
-        print(f"That didn't work (HTTP {code}).")
-    else:
-        sys.exit("No working token; nothing changed.")
-    shutil.copytree(SRC, DEST, dirs_exist_ok=True)
     server = f"agent-tracker-{name}"
-    claude("remove", server, "-s", "user")
-    out = claude("add", server, "--scope", "user",
-                 "-e", f"AGENT_DASH_URL={url}", "-e", f"AGENT_DASH_TOKEN={token}",
-                 "-e", f"AGENT_TRACKER_NAMES={os.path.join(CONF, f'names-{name}.json')}",
-                 "--", "python3", os.path.join(DEST, "launch.py"))
-    if out.returncode:
-        sys.exit(out.stderr.strip() or "claude mcp add failed")
-    print(f"Added {server}. New sessions get its tools as mcp__{server}__tracker_*.")
+    env = {"AGENT_DASH_URL": url, "AGENT_TRACKER_NAMES": os.path.join(CONF, f"names-{name}.json")}
+    if tool == "claude" and not token_file:
+        env["AGENT_DASH_TOKEN"] = ask_token(url)  # shortcut: claude mcp add takes it in argv, so ps can see it briefly
+    else:
+        token_file = os.path.abspath(os.path.expanduser(token_file or os.path.join(CONF, f"{name}.token")))
+        env["AGENT_DASH_TOKEN_FILE"] = token_file
+    try:
+        shutil.copytree(SRC, DEST, dirs_exist_ok=True)
+        if token_file:  # only boards that read a token file; `board token` refuses the rest
+            write_private(board_file(name), json.dumps({"url": url, "token_file": token_file}) + "\n")
+        if tool == "claude":
+            cmd = ["add", server, "--scope", "user", *[a for k, v in env.items() for a in ("-e", f"{k}={v}")],
+                   "--", "python3", LAUNCH]
+            out = claude(*cmd)
+            if out.returncode and claude("get", server).returncode == 0:  # already there: replace it
+                if claude("remove", server, "-s", "user").returncode == 0:
+                    out = claude(*cmd)
+                    if out.returncode:
+                        sys.exit(f"The old {server} was removed but the new one failed: {out.stderr.strip()}")
+            if out.returncode:
+                sys.exit(out.stderr.strip() or "claude mcp add failed")
+            where = "Claude Code"
+        else:
+            where, _ = edit(tool, server, env)
+    except OSError as e:
+        sys.exit(f"Can't set up {server}: {e}")
+    print(f"Added {server} to {where}. New sessions get its tracker_* tools.")
+    if token_file and not os.path.exists(token_file):
+        print(f"No token yet. Run this yourself in a terminal: board token {name}")
+
+
+def token(name):
+    check_name(name)
+    try:
+        with open(board_file(name)) as f:
+            board = json.load(f)
+        url, path = board["url"], board["token_file"]
+    except (OSError, ValueError, KeyError, TypeError):
+        sys.exit(f"No token-file board {name} here; run `board add {name} <url> --tool codex|opencode` "
+                 "(or --tool claude --token-file PATH) first.")
+    secret = prompt_token(url)
+    if not secret:
+        sys.exit("No token entered; nothing changed.")
+    code = whoami(url, secret)
+    if code != 200:
+        sys.exit(f"{url} rejected that token (HTTP {code}); {path} is unchanged.")
+    try:
+        write_private(path, secret + "\n", keep_mode=False)
+    except OSError as e:
+        sys.exit(f"The token works, but {path} couldn't be written: {e}")
+    print(f"OK: {url} accepted the token; saved to {path}.")
+
+
+def list_boards(tool):
+    if tool == "claude":
+        out = claude("list")
+        if out.returncode:
+            sys.exit(out.stderr.strip() or "claude mcp list failed")
+        names = [l for l in out.stdout.splitlines() if l.startswith("agent-tracker")]
+    else:
+        path = CODEX if tool == "codex" else OPENCODE
+        try:
+            with open(path) as f:
+                text = f.read()
+            if tool == "codex":
+                names = sorted({m.group(1) for m in re.finditer(r'(?m)^\s*\[\s*mcp_servers\s*\.\s*"?(agent-tracker[a-z0-9-]*)', text)})
+            else:
+                names = sorted(k for k in mcp_servers(json.loads(text or "{}")) if k.startswith("agent-tracker"))
+        except FileNotFoundError:
+            names = []
+        except (OSError, ValueError) as e:
+            sys.exit(f"Can't read {path}: {e}")
+    print("\n".join(names) or f"No agent-tracker boards registered with {tool}.")
+
+
+def remove(name, tool):
+    check_name(name)
+    server = f"agent-tracker-{name}"
+    if tool == "claude":
+        out = claude("remove", server, "-s", "user")
+        print(out.stdout.strip() or out.stderr.strip())
+        if out.returncode:
+            sys.exit(1)
+    else:
+        try:
+            path, found = edit(tool, server, None)
+        except OSError as e:
+            sys.exit(f"Can't update the {tool} config: {e}")
+        if not found:
+            sys.exit(f"No {server} in {path}.")
+        print(f"Removed {server} from {path}.")
+    try:
+        with open(board_file(name)) as f:
+            print(f"The token file {json.load(f)['token_file']} is kept for other tools on this board; delete it when none use it.")
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
 
 
 def main(argv):
-    if argv[:1] == ["add"] and len(argv) == 3:
-        add(argv[1], argv[2])
-    elif argv == ["list"]:
-        lines = [l for l in claude("list").stdout.splitlines() if l.startswith("agent-tracker")]
-        print("\n".join(lines) or "No extra boards. The primary board is the plugin's own agent-tracker.")
-    elif argv[:1] == ["remove"] and len(argv) == 2:
-        out = claude("remove", f"agent-tracker-{argv[1]}", "-s", "user")
-        print(out.stdout.strip() or out.stderr.strip())
+    p = argparse.ArgumentParser(prog="board", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest="cmd", required=True)
+    a = sub.add_parser("add")
+    a.add_argument("name")
+    a.add_argument("url")
+    a.add_argument("--token-file")
+    sub.add_parser("token").add_argument("name")
+    ls = sub.add_parser("list")
+    rm = sub.add_parser("remove")
+    rm.add_argument("name")
+    for s in (a, ls, rm):
+        s.add_argument("--tool", choices=TOOLS, default="claude")
+    args = p.parse_args(argv)
+    if args.cmd == "add":
+        add(args.name, args.url, args.tool, args.token_file)
+    elif args.cmd == "token":
+        token(args.name)
+    elif args.cmd == "list":
+        list_boards(args.tool)
     else:
-        sys.exit(__doc__)
+        remove(args.name, args.tool)
 
 
 if __name__ == "__main__":

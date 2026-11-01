@@ -110,8 +110,13 @@ Codex has no file format here for agents or commands; `AGENTS.md` (see
 | Platform | Skills | Agents | Commands | MCP config |
 |---|---|---|---|---|
 | **Claude Code** | `~/.claude/skills/` or the plugin | `~/.claude/agents/` or the plugin | the plugin | `ai-harness/.mcp.json` |
-| **Codex CLI** | `.agents/skills/` | — | — | — |
-| **OpenCode** | `.agents/skills/` | `.opencode/agents/` | `.opencode/commands/` | `opencode.jsonc` |
+| **Codex CLI** | `.agents/skills/` | — | — | board: `board add <name> <url> --tool codex` |
+| **OpenCode** | `.agents/skills/` | `.opencode/agents/` | `.opencode/commands/` | `opencode.jsonc`; board: `board add <name> <url> --tool opencode` |
+
+The board (agent-tracker MCP, `ai-harness/board/bin/board`) works the same for
+all three: an agent runs `board add`, then a human runs `board token <name>` in a
+terminal, which writes the token to a mode-600 file that the config points at.
+See the `ai-harness-board` section of [ai-harness/README.md](ai-harness/README.md).
 
 `ai-harness/` is the source of truth. `.agents/skills/`, `.opencode/agents/`
 and `.opencode/commands/` are generated from it by `scripts/sync-compat.py`:
